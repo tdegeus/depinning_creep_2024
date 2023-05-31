@@ -1,0 +1,21 @@
+channels:
+- conda-forge
+dependencies:
+- autodocsumm
+- click
+- enstat
+- goosehdf5
+- goosempl
+- gooseslurm
+- h5glance
+- h5py
+- mv_regex
+- numpy
+- parallel
+- pdfcombine
+- pre-commit
+- python
+- python-cppcolormap
+- setuptools_scm
+- shelephant
+- tqdm
