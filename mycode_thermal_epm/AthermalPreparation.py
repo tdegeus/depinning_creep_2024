@@ -6,6 +6,7 @@ import textwrap
 import GooseEPM as epm
 import h5py
 import numpy as np
+import shelephant
 
 from . import tools
 from ._version import version
@@ -76,6 +77,7 @@ def Generate(cli_args=None):
     parser.add_argument("outdir", type=pathlib.Path, help="Output directory")
 
     args = tools._parse(parser, cli_args)
+    args.outdir.mkdir(parents=True, exist_ok=True)
 
     n = args.size if args.shape is None else np.prod(args.shape)
     assert not any(
@@ -107,6 +109,10 @@ def Generate(cli_args=None):
 
             init.create_dataset("state", shape=[], dtype=np.uint64)
             init["state"].attrs["seed"] = seed
+
+    executable = "AthermalPreparation_Run"
+    commands = [f"{executable} {file}" for file in files]
+    shelephant.yaml.dump(args.outdir / "commands_run.yaml", commands, force=True)
 
 
 def Run(cli_args=None):

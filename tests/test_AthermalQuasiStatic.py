@@ -6,9 +6,9 @@ import tempfile
 import unittest
 from functools import partialmethod
 
-from tqdm import tqdm
 import h5py
 import numpy as np
+from tqdm import tqdm
 
 tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
 

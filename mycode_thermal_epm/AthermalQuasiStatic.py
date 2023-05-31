@@ -134,7 +134,7 @@ def Run(cli_args=None):
         restart = file["restart"]
         tic = time.time()
 
-        for step in tqdm.tqdm(range(system.step, end + 1), desc=args.file):
+        for step in tqdm.tqdm(range(system.step, end + 1), desc=str(args.file)):
             n = np.copy(system.nfails)
             system.step = step
             if step % 2 == 1:
