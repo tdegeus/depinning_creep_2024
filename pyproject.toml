@@ -4,7 +4,7 @@ requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
 [project]
 authors = [{name = "Tom de Geus", email = "tom@geus.me"}]
 classifiers = ["License :: OSI Approved :: MIT License"]
-dependencies = ["numpy", "tqdm", "h5py", "GooseEPM >=0.2.0"]
+dependencies = ["numpy", "tqdm", "h5py", "enstat", "GooseEPM >=0.3.0"]
 description = "Simple dataset management"
 dynamic = ["version"]
 name = "mycode_thermal_epm"
@@ -12,7 +12,10 @@ readme = "README.md"
 requires-python = ">=3.7"
 
 [project.scripts]
-QuasiStatic_Run = "mycode_thermal_epm.QuasiStatic:Run"
+AthermalPreparation_Generate = "mycode_thermal_epm.AthermalPreparation:Generate"
+AthermalPreparation_Run = "mycode_thermal_epm.AthermalPreparation:Run"
+AthermalQuasiStatic_BranchPreparation = "mycode_thermal_epm.AthermalQuasiStatic:BranchPreparation"
+AthermalQuasiStatic_Run = "mycode_thermal_epm.AthermalQuasiStatic:Run"
 
 [project.urls]
 Source = "https://github.com/tdegeus/mycode_thermal_epm"

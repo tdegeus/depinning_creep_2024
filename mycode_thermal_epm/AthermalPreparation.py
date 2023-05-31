@@ -11,19 +11,19 @@ from . import tools
 from ._version import version
 
 
+def propagator(param: h5py.Group):
+    if param["interactions"].asstr()[...] == "monotonic-shortrange":
+        return epm.laplace_propagator()
+    raise NotImplementedError("Unknown interactions type '%s'" % param["interactions"])
+
+
 class SystemAthermal(epm.SystemAthermal):
     def __init__(self, file: h5py.File):
         param = file["param"]
         init = file["init"]
-
-        if param["interactions"].asstr()[...] == "laplace":
-            propagator = epm.laplace_propagator()
-        else:
-            raise NotImplementedError
-
         epm.SystemAthermal.__init__(
             self,
-            *propagator,
+            *propagator(param),
             sigmay_mean=np.ones(param["shape"][...]) * init["sigmay"].attrs["mean"],
             sigmay_std=np.ones(param["shape"][...]) * init["sigmay"].attrs["std"],
             seed=init["state"].attrs["seed"],
@@ -89,9 +89,12 @@ def Generate(cli_args=None):
         files += [f"id={i:04d}.h5"]
         seed = i * n
         with h5py.File(args.outdir / files[-1], "w") as file:
+            tools.create_check_meta(file, f"/meta/AthermalPreparation/{funcname}", dev=args.develop)
+
             param = file.create_group("param")
             param["alpha"] = args.alpha
             param["shape"] = args.shape
+            param["interactions"] = args.interactions
 
             init = file.create_group("init")
 
@@ -130,6 +133,7 @@ def Run(cli_args=None):
     assert args.file.exists()
 
     with h5py.File(args.file, "a") as file:
+        tools.create_check_meta(file, f"/meta/AthermalPreparation/{funcname}", dev=args.develop)
         system = SystemAthermal(file)
         init = file["init"]
         init["sigma"][...] = system.sigma
