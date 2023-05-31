@@ -2,6 +2,7 @@ import argparse
 import inspect
 import pathlib
 import textwrap
+import time
 
 import GooseEPM as epm
 import GooseHDF5 as g5
@@ -10,6 +11,7 @@ import numpy as np
 import tqdm
 
 from . import AthermalPreparation
+from . import storage
 from . import tools
 from ._version import version
 
@@ -17,29 +19,30 @@ from ._version import version
 class SystemDrivenAthermal(epm.SystemDrivenAthermal):
     def __init__(self, file: h5py.File):
         param = file["param"]
-        init = file["init"]
+        restart = file["restart"]
 
         epm.SystemDrivenAthermal.__init__(
             self,
             *AthermalPreparation.propagator(param),
             sigmay_mean=np.ones(param["shape"][...]) * param["sigmay"][0],
             sigmay_std=np.ones(param["shape"][...]) * param["sigmay"][1],
-            seed=init["state"].attrs["seed"],
+            seed=restart["state"].attrs["seed"],
             alpha=param["alpha"][...],
             kframe=param["kframe"][...],
             init_random_stress=False,
             init_relax=False,
         )
 
-        self.sigma = init["sigma"][...]
-        self.sigmabar = init["sigma"].attrs["mean"]
-        self.sigmay = init["sigmay"][...]
-        self.state = init["state"][...]
+        self.sigma = restart["sigma"][...]
+        self.sigmay = restart["sigmay"][...]
+        self.state = restart["state"][...]
+        self.epsframe = restart["uframe"][...]
+        self.step = restart["step"][...]
 
 
 def BranchPreparation(cli_args=None):
     """
-    Branch from prepared stress state.
+    Branch from prepared stress state and add parameters.
     """
 
     class MyFmt(
@@ -66,7 +69,10 @@ def BranchPreparation(cli_args=None):
     assert not args.output.exists()
 
     with h5py.File(args.input) as src, h5py.File(args.output, "w") as dest:
-        g5.copy(src, dest, ["/meta", "/param", "/init"])
+        g5.copy(src, dest, ["/meta", "/param"])
+        g5.copy(src, dest, "/init", "/restart")
+        dest["restart"]["step"] = 0
+        dest["restart"]["uframe"] = 0.0
         dest["param"]["sigmay"] = args.sigmay
         if args.kframe is not None:
             dest["param"]["kframe"] = args.kframe
@@ -76,7 +82,7 @@ def BranchPreparation(cli_args=None):
 
 def Run(cli_args=None):
     """
-    Run simulation.
+    Run simulation for a fixed number of steps.
     """
 
     class MyFmt(
@@ -93,6 +99,7 @@ def Run(cli_args=None):
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("-v", "--version", action="version", version=version)
     parser.add_argument("-n", "--nstep", type=int, default=5000, help="Total #load-steps to run")
+    parser.add_argument("--backup-interval", default=5, type=int, help="Backup interval in minutes")
     parser.add_argument("file", type=pathlib.Path, help="Input/output file")
 
     args = tools._parse(parser, cli_args)
@@ -100,24 +107,51 @@ def Run(cli_args=None):
 
     with h5py.File(args.file, "a") as file:
         system = SystemDrivenAthermal(file)
-        res = file.create_group("AthermalQuasiStatic")
-        sigma = res.create_dataset("sigma", (args.nstep,), dtype=np.float64)
-        uframe = res.create_dataset("uframe", (args.nstep,), dtype=np.float64)
-        S = res.create_dataset("S", (args.nstep,), dtype=np.float64)
-        A = res.create_dataset("A", (args.nstep,), dtype=np.float64)
-        sigma[0] = system.sigmabar
-        uframe[0] = system.epsframe
-        S[0] = 0
-        A[0] = 0
 
-        for i in tqdm.tqdm(range(1, args.nstep)):
+        if "AthermalQuasiStatic" not in file:
+            res = file.create_group("AthermalQuasiStatic")
+            end = args.nstep - 1
+            sigma = res.create_dataset("sigma", (args.nstep,), maxshape=(None,), dtype=np.float64)
+            uframe = res.create_dataset("uframe", (args.nstep,), maxshape=(None,), dtype=np.float64)
+            S = res.create_dataset("S", (args.nstep,), maxshape=(None,), dtype=np.int64)
+            A = res.create_dataset("A", (args.nstep,), maxshape=(None,), dtype=np.int64)
+            sigma[system.step] = system.sigmabar
+            uframe[system.step] = system.epsframe
+            S[system.step] = 0
+            A[system.step] = 0
+            system.step += 1
+        else:
+            res = file["AthermalQuasiStatic"]
+            system.step += 1
+            end = system.step + args.nstep - 1
+            sigma = res["sigma"]
+            uframe = res["uframe"]
+            S = res["S"]
+            A = res["A"]
+            for dset in [sigma, uframe, S, A]:
+                dset.resize((system.step + args.nstep,))
+
+        restart = file["restart"]
+        tic = time.time()
+
+        for step in tqdm.tqdm(range(system.step, end + 1), desc=args.file):
             n = np.copy(system.nfails)
-            if i % 2 == 1:
+            system.step = step
+            if step % 2 == 1:
                 system.shiftImposedShear()
             else:
                 system.relaxAthermal()
 
-            uframe[i] = system.epsframe
-            sigma[i] = system.sigmabar
-            S[i] = np.sum(system.nfails - n)
-            A[i] = np.sum(system.nfails != n)
+            uframe[step] = system.epsframe
+            sigma[step] = system.sigmabar
+            S[step] = np.sum(system.nfails - n)
+            A[step] = np.sum(system.nfails != n)
+
+            if step == end or time.time() - tic > args.backup_interval * 60:
+                tic = time.time()
+                restart["sigma"][...] = system.sigma
+                restart["sigmay"][...] = system.sigmay
+                restart["state"][...] = system.state
+                restart["uframe"][...] = system.epsframe
+                restart["step"][...] = system.step
+                file.flush()
