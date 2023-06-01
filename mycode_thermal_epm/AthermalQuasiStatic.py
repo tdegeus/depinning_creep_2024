@@ -11,7 +11,6 @@ import numpy as np
 import tqdm
 
 from . import AthermalPreparation
-from . import storage
 from . import tools
 from ._version import version
 
@@ -115,10 +114,12 @@ def Run(cli_args=None):
             uframe = res.create_dataset("uframe", (args.nstep,), maxshape=(None,), dtype=np.float64)
             S = res.create_dataset("S", (args.nstep,), maxshape=(None,), dtype=np.int64)
             A = res.create_dataset("A", (args.nstep,), maxshape=(None,), dtype=np.int64)
+            t = res.create_dataset("t", (args.nstep,), maxshape=(None,), dtype=np.int64)
             sigma[system.step] = system.sigmabar
             uframe[system.step] = system.epsframe
             S[system.step] = 0
             A[system.step] = 0
+            t[system.step] = 0
             system.step += 1
         else:
             res = file["AthermalQuasiStatic"]
@@ -128,15 +129,18 @@ def Run(cli_args=None):
             uframe = res["uframe"]
             S = res["S"]
             A = res["A"]
-            for dset in [sigma, uframe, S, A]:
+            t = res["t"]
+            for dset in [sigma, uframe, S, A, t]:
                 dset.resize((system.step + args.nstep,))
 
         restart = file["restart"]
         tic = time.time()
+        pbar = tqdm.tqdm(range(system.step, end + 1), desc=str(args.file))
 
-        for step in tqdm.tqdm(range(system.step, end + 1), desc=str(args.file)):
+        for step in pbar:
+            pbar.refresh()
             n = np.copy(system.nfails)
-            system.step = step
+            t0 = system.t
             if step % 2 == 1:
                 system.shiftImposedShear()
             else:
@@ -146,6 +150,7 @@ def Run(cli_args=None):
             sigma[step] = system.sigmabar
             S[step] = np.sum(system.nfails - n)
             A[step] = np.sum(system.nfails != n)
+            t[step] = system.t - t0
 
             if step == end or time.time() - tic > args.backup_interval * 60:
                 tic = time.time()
@@ -153,5 +158,5 @@ def Run(cli_args=None):
                 restart["sigmay"][...] = system.sigmay
                 restart["state"][...] = system.state
                 restart["uframe"][...] = system.epsframe
-                restart["step"][...] = system.step
+                restart["step"][...] = step
                 file.flush()
