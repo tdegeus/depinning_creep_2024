@@ -1,7 +1,9 @@
 import argparse
+import os
 import sys
 import uuid
 
+import click
 import GooseEPM as epm
 import h5py
 
@@ -14,6 +16,22 @@ def _parse(parser: argparse.ArgumentParser, cli_args: list[str]) -> argparse.Arg
         return parser.parse_args(sys.argv[1:])
 
     return parser.parse_args([str(arg) for arg in cli_args])
+
+
+def read_version(file: h5py.File, path: str) -> str:
+    """
+    Read version of this library from file.
+
+    :param file: HDF5 archive.
+    :param path: Path in ``file`` to read version from, as attribute "dependencies".
+    :return: Version string.
+    """
+
+    if path not in file:
+        return None
+
+    ret = file[path].attrs["dependencies"]
+    return [i for i in ret if i.startswith("mycode_thermal_epm")][0].split("=")[1]
 
 
 def create_check_meta(
@@ -36,16 +54,7 @@ def create_check_meta(
     :return: Group to metadata.
     """
 
-    deps = sorted(
-        list(
-            set(
-                list(epm.version_dependencies())
-                + [
-                    "mycode_thermal_epm=" + version,
-                ]
-            )
-        )
-    )
+    deps = sorted(list(set(list(epm.version_dependencies()) + ["mycode_thermal_epm=" + version])))
 
     assert dev or not tag.any_has_uncommitted(deps)
 
@@ -67,3 +76,11 @@ def create_check_meta(
     else:
         assert dev or tag.all_equal(deps, meta.attrs["dependencies"])
     return meta
+
+
+def _check_overwrite_file(filepath: str, force: bool):
+    if force or not os.path.isfile(filepath):
+        return
+
+    if not click.confirm(f'Overwrite "{filepath}"?'):
+        raise OSError("Cancelled")

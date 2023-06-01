@@ -67,6 +67,9 @@ def greater(a: str, b: str) -> bool:
     :return: ``True`` if ``a > b``
     """
 
+    if a is None:
+        return False
+
     return packaging.version.parse(a) > packaging.version.parse(b)
 
 

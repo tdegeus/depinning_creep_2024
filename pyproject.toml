@@ -15,6 +15,8 @@ requires-python = ">=3.7"
 AthermalPreparation_Generate = "mycode_thermal_epm.AthermalPreparation:Generate"
 AthermalPreparation_Run = "mycode_thermal_epm.AthermalPreparation:Run"
 AthermalQuasiStatic_BranchPreparation = "mycode_thermal_epm.AthermalQuasiStatic:BranchPreparation"
+AthermalQuasiStatic_EnsembleInfo = "mycode_thermal_epm.AthermalQuasiStatic:EnsembleInfo"
+AthermalQuasiStatic_Plot = "mycode_thermal_epm.AthermalQuasiStatic:Plot"
 AthermalQuasiStatic_Run = "mycode_thermal_epm.AthermalQuasiStatic:Run"
 
 [project.urls]

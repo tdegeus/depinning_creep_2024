@@ -63,6 +63,8 @@ class MyTests(unittest.TestCase):
             self.assertTrue(np.allclose(aa["S"][...], bb["S"][...]))
             self.assertTrue(np.allclose(aa["A"][...], bb["A"][...]))
 
+        AthermalQuasiStatic.EnsembleInfo(["id=0000_qs.h5"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

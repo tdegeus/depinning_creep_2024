@@ -4,6 +4,7 @@ import pathlib
 import textwrap
 import time
 
+import enstat
 import GooseEPM as epm
 import GooseHDF5 as g5
 import h5py
@@ -11,8 +12,11 @@ import numpy as np
 import tqdm
 
 from . import AthermalPreparation
+from . import tag
 from . import tools
 from ._version import version
+
+f_info = "EnsembleInfo.h5"
 
 
 class SystemDrivenAthermal(epm.SystemDrivenAthermal):
@@ -77,6 +81,7 @@ def BranchPreparation(cli_args=None):
             dest["param"]["kframe"] = args.kframe
         else:
             dest["param"]["kframe"] = 1.0 / (np.min(dest["param"]["shape"][...]) ** 2)
+        tools.create_check_meta(dest, f"/meta/AthermalQuasiStatic/{funcname}", dev=args.develop)
 
 
 def Run(cli_args=None):
@@ -105,6 +110,7 @@ def Run(cli_args=None):
     assert args.file.exists()
 
     with h5py.File(args.file, "a") as file:
+        tools.create_check_meta(file, f"/meta/AthermalQuasiStatic/{funcname}", dev=args.develop)
         system = SystemDrivenAthermal(file)
 
         if "AthermalQuasiStatic" not in file:
@@ -114,12 +120,12 @@ def Run(cli_args=None):
             uframe = res.create_dataset("uframe", (args.nstep,), maxshape=(None,), dtype=np.float64)
             S = res.create_dataset("S", (args.nstep,), maxshape=(None,), dtype=np.int64)
             A = res.create_dataset("A", (args.nstep,), maxshape=(None,), dtype=np.int64)
-            t = res.create_dataset("t", (args.nstep,), maxshape=(None,), dtype=np.int64)
+            T = res.create_dataset("T", (args.nstep,), maxshape=(None,), dtype=np.int64)
             sigma[system.step] = system.sigmabar
             uframe[system.step] = system.epsframe
             S[system.step] = 0
             A[system.step] = 0
-            t[system.step] = 0
+            T[system.step] = 0
             system.step += 1
         else:
             res = file["AthermalQuasiStatic"]
@@ -129,8 +135,8 @@ def Run(cli_args=None):
             uframe = res["uframe"]
             S = res["S"]
             A = res["A"]
-            t = res["t"]
-            for dset in [sigma, uframe, S, A, t]:
+            T = res["T"]
+            for dset in [sigma, uframe, S, A, T]:
                 dset.resize((system.step + args.nstep,))
 
         restart = file["restart"]
@@ -150,7 +156,7 @@ def Run(cli_args=None):
             sigma[step] = system.sigmabar
             S[step] = np.sum(system.nfails - n)
             A[step] = np.sum(system.nfails != n)
-            t[step] = system.t - t0
+            T[step] = system.t - t0
 
             if step == end or time.time() - tic > args.backup_interval * 60:
                 tic = time.time()
@@ -160,3 +166,138 @@ def Run(cli_args=None):
                 restart["uframe"][...] = system.epsframe
                 restart["step"][...] = step
                 file.flush()
+
+
+def EnsembleInfo(cli_args=None):
+    """
+    Basic interpretation of the ensemble.
+    """
+
+    class MyFmt(
+        argparse.RawDescriptionHelpFormatter,
+        argparse.ArgumentDefaultsHelpFormatter,
+        argparse.MetavarTypeHelpFormatter,
+    ):
+        pass
+
+    funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
+
+    parser.add_argument("-v", "--version", action="version", version=version)
+    parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
+    parser.add_argument("-o", "--output", type=pathlib.Path, help="Output file", default=f_info)
+    parser.add_argument("files", nargs="*", type=pathlib.Path, help="Simulation files")
+
+    args = tools._parse(parser, cli_args)
+    assert all([f.exists() for f in args.files])
+    tools._check_overwrite_file(args.output, args.force)
+
+    with h5py.File(args.output, "w") as output:
+        elastic = {"uframe": [], "sigma": [], "S": [], "A": [], "T": []}
+        plastic = {"uframe": [], "sigma": [], "S": [], "A": [], "T": []}
+        for ifile, f in enumerate(args.files):
+            with h5py.File(f) as file:
+                if ifile == 0:
+                    g5.copy(file, output, ["/param"])
+                    kframe = file["/param/kframe"][...]
+                    u0 = (kframe + 1.0) / kframe  # mu = 1
+                    output["/norm/uframe"] = u0
+                    output["/norm/sigma"] = 1.0
+                    ver = tools.read_version(file, "/meta/AthermalQuasiStatic/Run")
+
+                uframe = file["/AthermalQuasiStatic/uframe"][...] / u0
+                sigma = file["/AthermalQuasiStatic/sigma"][...]
+                tmp = uframe[0]
+                uframe[0] = 1
+                tangent = sigma / uframe
+                tangent[0] = np.inf
+                uframe[0] = tmp
+
+                i = np.argmax(tangent < 0.95) + 1
+                if i % 2 == 0:
+                    i += 1
+                if (uframe.size - i) % 2 == 1:
+                    end = -1
+                else:
+                    end = None
+
+                elastic["uframe"] += uframe[i:end:2].tolist()
+                elastic["sigma"] += sigma[i:end:2].tolist()
+                plastic["uframe"] += uframe[i + 1 : end : 2].tolist()
+                plastic["sigma"] += sigma[i + 1 : end : 2].tolist()
+                plastic["S"] += file["/AthermalQuasiStatic/S"][i + 1 : end : 2].tolist()
+                plastic["A"] += file["/AthermalQuasiStatic/A"][i + 1 : end : 2].tolist()
+                if tag.greater(ver, "1.1"):
+                    plastic["T"] += file["/AthermalQuasiStatic/T"][i + 1 : end : 2].tolist()
+
+        for key in elastic:
+            output["/elastic/" + key] = elastic[key]
+        for key in plastic:
+            output["/plastic/" + key] = plastic[key]
+
+
+def Plot(cli_args=None):
+    """
+    Basic plot.
+    """
+
+    import GooseMPL as gplt  # noqa: F401
+    import matplotlib.pyplot as plt  # noqa: F401
+
+    plt.style.use(["goose", "goose-latex", "goose-autolayout"])
+
+    class MyFmt(
+        argparse.RawDescriptionHelpFormatter,
+        argparse.ArgumentDefaultsHelpFormatter,
+        argparse.MetavarTypeHelpFormatter,
+    ):
+        pass
+
+    funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
+
+    parser.add_argument("-v", "--version", action="version", version=version)
+    parser.add_argument("file", type=pathlib.Path, help="Simulation file")
+
+    args = tools._parse(parser, cli_args)
+    assert args.file.exists()
+
+    with h5py.File(args.file) as file:
+        kframe = file["/param/kframe"][...]
+        u0 = (kframe + 1.0) / kframe  # mu = 1
+        uframe = file["/AthermalQuasiStatic/uframe"][...] / u0
+        sigma = file["/AthermalQuasiStatic/sigma"][...]
+        tmp = uframe[0]
+        uframe[0] = 1
+        tangent = sigma / uframe
+        tangent[0] = np.inf
+        uframe[0] = tmp
+        i = np.argmax(tangent < 0.95) + 1
+        S = file["/AthermalQuasiStatic/S"][i:].tolist()
+
+    S = np.array(S)
+    S = S[S > 0]
+    hist = enstat.histogram.from_data(S, bins=100, mode="log")
+
+    fig, axes = gplt.subplots(ncols=2)
+
+    ax = axes[0]
+    ax.plot(uframe, sigma, marker=".")
+    ax.axvline(uframe[i], ls="-", c="r", lw=1)
+    ax.set_xlabel(r"$\bar{u}$")
+    ax.set_ylabel(r"$\bar{\sigma}$")
+
+    ax = axes[1]
+    ax.plot(hist.x, hist.p)
+    keep = np.logical_and(hist.x > 1e1, hist.x < 1e5)
+    gplt.fit_powerlaw(hist.x[keep], hist.p[keep], axis=ax, auto_fmt="S")
+    ax.legend()
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel(r"$S$")
+    ax.set_ylabel(r"$P(S)$")
+
+    plt.show()
+    plt.close(fig)
