@@ -19,12 +19,12 @@ from ._version import version
 f_info = "EnsembleInfo.h5"
 
 
-class SystemDrivenAthermal(epm.SystemDrivenAthermal):
+class SystemSpringLoading(epm.SystemSpringLoading):
     def __init__(self, file: h5py.File):
         param = file["param"]
         restart = file["restart"]
 
-        epm.SystemDrivenAthermal.__init__(
+        epm.SystemSpringLoading.__init__(
             self,
             *AthermalPreparation.propagator(param),
             sigmay_mean=np.ones(param["shape"][...]) * param["sigmay"][0],
@@ -32,8 +32,7 @@ class SystemDrivenAthermal(epm.SystemDrivenAthermal):
             seed=restart["state"].attrs["seed"],
             alpha=param["alpha"][...],
             kframe=param["kframe"][...],
-            init_random_stress=False,
-            init_relax=False,
+            random_stress=False,
         )
 
         self.sigma = restart["sigma"][...]
@@ -111,7 +110,7 @@ def Run(cli_args=None):
 
     with h5py.File(args.file, "a") as file:
         tools.create_check_meta(file, f"/meta/AthermalQuasiStatic/{funcname}", dev=args.develop)
-        system = SystemDrivenAthermal(file)
+        system = SystemSpringLoading(file)
 
         if "AthermalQuasiStatic" not in file:
             res = file.create_group("AthermalQuasiStatic")

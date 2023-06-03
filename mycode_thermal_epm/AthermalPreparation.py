@@ -18,20 +18,18 @@ def propagator(param: h5py.Group):
     raise NotImplementedError("Unknown interactions type '%s'" % param["interactions"])
 
 
-class SystemAthermal(epm.SystemAthermal):
+class SystemStressControl(epm.SystemStressControl):
     def __init__(self, file: h5py.File):
         param = file["param"]
         init = file["init"]
-        epm.SystemAthermal.__init__(
+        epm.SystemStressControl.__init__(
             self,
             *propagator(param),
             sigmay_mean=np.ones(param["shape"][...]) * init["sigmay"].attrs["mean"],
             sigmay_std=np.ones(param["shape"][...]) * init["sigmay"].attrs["std"],
             seed=init["state"].attrs["seed"],
             alpha=param["alpha"][...],
-            init_random_stress=True,
-            init_relax=True,
-            sigmabar=init["sigma"].attrs["mean"],
+            random_stress=True,
         )
 
 
@@ -101,7 +99,6 @@ def Generate(cli_args=None):
             init = file.create_group("init")
 
             init.create_dataset("sigma", shape=args.shape, dtype=np.float64)
-            init["sigma"].attrs["mean"] = 0.0
 
             init.create_dataset("sigmay", shape=args.shape, dtype=np.float64)
             init["sigmay"].attrs["mean"] = 1.0
@@ -140,7 +137,7 @@ def Run(cli_args=None):
 
     with h5py.File(args.file, "a") as file:
         tools.create_check_meta(file, f"/meta/AthermalPreparation/{funcname}", dev=args.develop)
-        system = SystemAthermal(file)
+        system = SystemStressControl(file)
         init = file["init"]
         init["sigma"][...] = system.sigma
         init["sigmay"][...] = system.sigmay
