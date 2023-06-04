@@ -56,12 +56,9 @@ class MyTests(unittest.TestCase):
             Thermal.Run(["--dev", "-n", 2, "id=0000_res.h5"])
 
         with h5py.File("id=0000_qs.h5") as a, h5py.File("id=0000_res.h5") as b:
-            self.assertTrue(np.allclose(a["/Thermal/x/0"][...], b["/Thermal/x/0"][...]))
-            self.assertTrue(np.allclose(a["/Thermal/x/1"][...], b["/Thermal/x/1"][...]))
-            self.assertTrue(np.allclose(a["/Thermal/x/2"][...], b["/Thermal/x/2"][...]))
-            self.assertTrue(np.allclose(a["/Thermal/x/3"][...], b["/Thermal/x/3"][...]))
-            self.assertTrue(np.allclose(a["/Thermal/x/4"][...], b["/Thermal/x/4"][...]))
-            self.assertTrue(np.allclose(a["/Thermal/x/5"][...], b["/Thermal/x/5"][...]))
+            for i in range(5):
+                key = f"/Thermal/sigma/{i:d}"
+                self.assertTrue(np.allclose(a[key][...], b[key][...]))
 
 
 if __name__ == "__main__":
