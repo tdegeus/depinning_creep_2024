@@ -3,6 +3,7 @@ import inspect
 import pathlib
 import textwrap
 
+import enstat
 import GooseEPM as epm
 import GooseHDF5 as g5
 import h5py
@@ -121,9 +122,61 @@ def Run(cli_args=None):
 
             n = res["n"][...]
             res["n"][...] = n + 1
-            res["x"][str(n)] = system.sigmay - system.sigma
+            res["sigma"][str(n)] = system.sigma
+            res["sigmay"][str(n)] = system.sigmay
 
             restart["sigma"][...] = system.sigma
             restart["sigmay"][...] = system.sigmay
             restart["state"][...] = system.state
             file.flush()
+
+
+def EnsembleInfo(cli_args=None):
+    """
+    Basic interpretation of the ensemble.
+    """
+
+    class MyFmt(
+        argparse.RawDescriptionHelpFormatter,
+        argparse.ArgumentDefaultsHelpFormatter,
+        argparse.MetavarTypeHelpFormatter,
+    ):
+        pass
+
+    funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
+
+    parser.add_argument("-v", "--version", action="version", version=version)
+    parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
+    parser.add_argument("-o", "--output", type=pathlib.Path, help="Output file", default=f_info)
+    parser.add_argument("files", nargs="*", type=pathlib.Path, help="Simulation files")
+
+    args = tools._parse(parser, cli_args)
+    assert all([f.exists() for f in args.files])
+    tools._check_overwrite_file(args.output, args.force)
+
+    x = []
+
+    with h5py.File(args.output, "w") as output:
+        for ifile, f in enumerate(args.files):
+            with h5py.File(f) as file:
+                if ifile == 0:
+                    g5.copy(file, output, ["/param"])
+
+                res = file["ExtremeValue"]
+                n = res["n"][...]
+                for i in range(n):
+                    x += (res["sigmay"][str(i)][...] - res["sigma"][str(i)][...]).tolist()
+
+    # import GooseMPL as gplt  # noqa: F401
+    # import matplotlib.pyplot as plt  # noqa: F401
+
+    # plt.style.use(["goose", "goose-latex", "goose-autolayout"])
+
+    # fig, ax = plt.subplots()
+    # hist = enstat.histogram.from_data(x, bins=100, mode="log")
+    # ax.plot(hist.x, hist.p)
+    # ax.set_xscale("log")
+    # ax.set_yscale("log")
+    # plt.show()

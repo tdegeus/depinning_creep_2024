@@ -12,7 +12,6 @@ import numpy as np
 import tqdm
 
 from . import AthermalPreparation
-from . import tag
 from . import tools
 from ._version import version
 
@@ -203,7 +202,6 @@ def EnsembleInfo(cli_args=None):
                     u0 = (kframe + 1.0) / kframe  # mu = 1
                     output["/norm/uframe"] = u0
                     output["/norm/sigma"] = 1.0
-                    ver = tools.read_version(file, "/meta/AthermalQuasiStatic/Run")
 
                 uframe = file["/AthermalQuasiStatic/uframe"][...] / u0
                 sigma = file["/AthermalQuasiStatic/sigma"][...]
@@ -227,8 +225,7 @@ def EnsembleInfo(cli_args=None):
                 plastic["sigma"] += sigma[i + 1 : end : 2].tolist()
                 plastic["S"] += file["/AthermalQuasiStatic/S"][i + 1 : end : 2].tolist()
                 plastic["A"] += file["/AthermalQuasiStatic/A"][i + 1 : end : 2].tolist()
-                if tag.greater(ver, "1.1"):
-                    plastic["T"] += file["/AthermalQuasiStatic/T"][i + 1 : end : 2].tolist()
+                plastic["T"] += file["/AthermalQuasiStatic/T"][i + 1 : end : 2].tolist()
 
         for key in elastic:
             output["/elastic/" + key] = elastic[key]
