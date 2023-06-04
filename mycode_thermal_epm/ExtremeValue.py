@@ -105,7 +105,8 @@ def Run(cli_args=None):
 
         if "ExtremeValue" not in file:
             res = file.create_group("ExtremeValue")
-            res.create_group("x")
+            res.create_group("sigma")
+            res.create_group("sigmay")
             res["n"] = 0
         else:
             res = file["ExtremeValue"]

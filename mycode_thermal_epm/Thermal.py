@@ -113,7 +113,8 @@ def Run(cli_args=None):
 
         if "Thermal" not in file:
             res = file.create_group("Thermal")
-            res.create_group("x")
+            res.create_group("sigma")
+            res.create_group("sigmay")
             res.create_group("S")
             res.create_group("A")
             res["n"] = 0
