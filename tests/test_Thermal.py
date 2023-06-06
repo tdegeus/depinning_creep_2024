@@ -53,6 +53,8 @@ class MyTests(unittest.TestCase):
             key = "/Thermal/sigma"
             self.assertTrue(np.allclose(a[key][...], b[key][...]))
 
+        Thermal.EnsembleInfo(["id=0000_qs.h5"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

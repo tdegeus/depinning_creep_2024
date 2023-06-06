@@ -168,31 +168,61 @@ def EnsembleInfo(cli_args=None):
     assert all([f.exists() for f in args.files])
     tools._check_overwrite_file(args.output, args.force)
 
-    x = []
-
     with h5py.File(args.output, "w") as output:
-        for ifile, f in enumerate(args.files):
+        for ifile, f in enumerate(tqdm.tqdm(args.files)):
             with h5py.File(f) as file:
+                res = file[m_name]
+
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
+                    hist = enstat.histogram(bin_edges=np.linspace(0, 3, 2001))
 
-                res = file[m_name]
-                n = res["n"][...]
-                for i in range(n):
-                    s = res["sigmay"][str(i)][...] - np.abs(res["sigma"][str(i)][...])
-                    x += (res["sigmay"][str(i)][...] - np.abs(res["sigma"][str(i)][...])).tolist()
+                hist += (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
+
+        output["files"] = sorted([f.name for f in args.files])
+
+        res = output.create_group("hist_x")
+        res["x"] = hist.x
+        res["p"] = hist.p
+
+
+def Plot(cli_args=None):
+    """
+    Basic of the ensemble.
+    """
 
     import GooseMPL as gplt  # noqa: F401
     import matplotlib.pyplot as plt  # noqa: F401
 
-    # plt.style.use(["goose", "goose-latex", "goose-autolayout"])
+    plt.style.use(["goose", "goose-latex", "goose-autolayout"])
 
-    # fig, axes = gplt.subplots(ncols=2)
-    # hist = enstat.histogram.from_data(x, bins=100)
-    # axes[0].plot(hist.x, hist.p)
-    # ax = axes[1]
-    # cax = ax.imshow(s, interpolation="nearest")
+    class MyFmt(
+        argparse.RawDescriptionHelpFormatter,
+        argparse.ArgumentDefaultsHelpFormatter,
+        argparse.MetavarTypeHelpFormatter,
+    ):
+        pass
 
-    # cbar = fig.colorbar(cax, aspect=10)
-    # cbar.set_label(r"$\sigma$")
-    # plt.show()
+    funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
+
+    parser.add_argument("-v", "--version", action="version", version=version)
+    parser.add_argument("file", type=pathlib.Path, help="Simulation file")
+
+    args = tools._parse(parser, cli_args)
+    assert args.file.exists()
+
+    with h5py.File(args.file) as file:
+        x = file["hist_x"]["x"][...]
+        p = file["hist_x"]["p"][...]
+        xc = file["param"]["sigmay"][0] - file["param"]["sigmabar"][...]
+
+    fig, ax = gplt.subplots()
+    ax.plot(x, p)
+    ax.axvline(xc, color="r", ls="-", label=r"$\langle \sigma_y \rangle - \bar{\sigma}$")
+    ax.set_xlabel(r"$x$")
+    ax.set_ylabel(r"$P(x)$")
+    ax.legend()
+    plt.show()
+    plt.close(fig)

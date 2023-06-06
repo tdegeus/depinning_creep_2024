@@ -299,7 +299,7 @@ def EnsembleInfo(cli_args=None):
 
 def Plot(cli_args=None):
     """
-    Basic plot.
+    Basic of the ensemble.
     """
 
     import GooseMPL as gplt  # noqa: F401
@@ -327,15 +327,18 @@ def Plot(cli_args=None):
     with h5py.File(args.file) as file:
         i = _steady_state(file)
         res = file[m_name]
+        S = file["/AthermalQuasiStatic/S"][i:].tolist()
+        sigma = file["/AthermalQuasiStatic/restore/sigma"][...]
+        sigmay = file["/AthermalQuasiStatic/restore/sigmay"][...]
+        x = sigmay - np.abs(sigma)
         uframe = res["uframe"][...] / _norm_uframe(file)
         sigma = res["sigma"][...]
-        S = file["/AthermalQuasiStatic/S"][i:].tolist()
 
     S = np.array(S)
     S = S[S > 0]
     hist = enstat.histogram.from_data(S, bins=100, mode="log")
 
-    fig, axes = gplt.subplots(ncols=2)
+    fig, axes = gplt.subplots(ncols=3)
 
     ax = axes[0]
     ax.plot(uframe, sigma, marker=".")
@@ -352,6 +355,12 @@ def Plot(cli_args=None):
     ax.set_yscale("log")
     ax.set_xlabel(r"$S$")
     ax.set_ylabel(r"$P(S)$")
+
+    ax = axes[2]
+    hist = enstat.histogram.from_data(x, bins=100, mode="log")
+    ax.plot(hist.x, hist.p)
+    ax.set_xlabel(r"$x$")
+    ax.set_ylabel(r"$P(x)$")
 
     plt.show()
     plt.close(fig)

@@ -185,31 +185,101 @@ def EnsembleInfo(cli_args=None):
     assert all([f.exists() for f in args.files])
     tools._check_overwrite_file(args.output, args.force)
 
-    x = []
-
     with h5py.File(args.output, "w") as output:
-        for ifile, f in enumerate(args.files):
+        for ifile, f in enumerate(tqdm.tqdm(args.files)):
             with h5py.File(f) as file:
+                res = file[m_name]
+
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
+                    hist = enstat.histogram(bin_edges=np.linspace(0, 3, 2001))
+                    tmax = res["T"][-1, -1]
+                    bin_edges = np.linspace(0, 2 * tmax, 2001)
+                    S = enstat.binned(bin_edges, names=["x", "y"])
+                    Ssq = enstat.binned(bin_edges, names=["x", "y"])
+                    A = enstat.binned(bin_edges, names=["x", "y"])
+                    Asq = enstat.binned(bin_edges, names=["x", "y"])
+                    N = np.prod(file["param"]["shape"][...])
 
-                res = file[m_name]
-                n = res["n"][...]
-                for i in range(n):
-                    s = res["sigmay"][str(i)][...] - np.abs(res["sigma"][str(i)][...])
-                    x += (res["sigmay"][str(i)][...] - np.abs(res["sigma"][str(i)][...])).tolist()
+                hist += (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
+                for i in range(res["T"].shape[0]):
+                    S.add_sample(res["T"][i, ...], (res["S"][i, ...] / N))
+                    Ssq.add_sample(res["T"][i, ...], (res["S"][i, ...] / N) ** 2)
+                    A.add_sample(res["T"][i, ...], (res["A"][i, ...] / N))
+                    Asq.add_sample(res["T"][i, ...], (res["A"][i, ...] / N) ** 2)
 
-    # import GooseMPL as gplt  # noqa: F401
-    # import matplotlib.pyplot as plt  # noqa: F401
+        output["files"] = sorted([f.name for f in args.files])
 
-    # plt.style.use(["goose", "goose-latex", "goose-autolayout"])
+        res = output.create_group("hist_x")
+        res["x"] = hist.x
+        res["p"] = hist.p
 
-    # fig, axes = gplt.subplots(ncols=2)
-    # hist = enstat.histogram.from_data(x, bins=100)
-    # axes[0].plot(hist.x, hist.p)
-    # ax = axes[1]
-    # cax = ax.imshow(s, interpolation="nearest")
+        output["chi4_S"] = N * (Ssq["y"].mean() - S["y"].mean() ** 2)
+        output["chi4_A"] = N * (Asq["y"].mean() - A["y"].mean() ** 2)
+        output["t"] = S["x"].mean()
 
-    # cbar = fig.colorbar(cax, aspect=10)
-    # cbar.set_label(r"$\sigma$")
-    # plt.show()
+
+def Plot(cli_args=None):
+    """
+    Basic of the ensemble.
+    """
+
+    import GooseMPL as gplt  # noqa: F401
+    import matplotlib.pyplot as plt  # noqa: F401
+
+    plt.style.use(["goose", "goose-latex", "goose-autolayout"])
+
+    class MyFmt(
+        argparse.RawDescriptionHelpFormatter,
+        argparse.ArgumentDefaultsHelpFormatter,
+        argparse.MetavarTypeHelpFormatter,
+    ):
+        pass
+
+    funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
+
+    parser.add_argument("-v", "--version", action="version", version=version)
+    parser.add_argument("file", type=pathlib.Path, help="Simulation file")
+
+    args = tools._parse(parser, cli_args)
+    assert args.file.exists()
+
+    with h5py.File(args.file) as file:
+        x = file["hist_x"]["x"][...]
+        p = file["hist_x"]["p"][...]
+        xc = file["param"]["sigmay"][0] - file["param"]["sigmabar"][...]
+        alpha = file["param"]["alpha"][...]
+        temperature = file["param"]["temperature"][...]
+        t0 = np.exp(xc**alpha / temperature)
+
+        chi4_S = file["chi4_S"][...]
+        chi4_A = file["chi4_A"][...]
+        t = file["t"][...] / t0
+
+    fig, axes = gplt.subplots(ncols=3)
+
+    ax = axes[0]
+    ax.plot(x, p)
+    ax.axvline(xc, color="r", ls="-", label=r"$\langle \sigma_y \rangle - \bar{\sigma}$")
+    ax.set_xlabel(r"$x$")
+    ax.set_ylabel(r"$P(x)$")
+    ax.legend()
+
+    ax = axes[1]
+    ax.plot(t, chi4_S, label=r"$\chi_4^S$")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel(r"$t$")
+    ax.set_ylabel(r"$\chi_4^S$")
+
+    ax = axes[2]
+    ax.plot(t, chi4_A, label=r"$\chi_4^A$")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel(r"$t$")
+    ax.set_ylabel(r"$\chi_4^A$")
+
+    plt.show()
+    plt.close(fig)
