@@ -36,6 +36,7 @@ class SystemThermalStressControl(epm.SystemThermalStressControl):
         self.epsp = restart["epsp"][...]
         self.sigma = restart["sigma"][...]
         self.sigmay = restart["sigmay"][...]
+        self.t = restart["t"][...]
         self.state = restart["state"][...]
         self.sigmabar = param["sigmabar"][...]
         self.temperature = param["temperature"][...]
@@ -49,7 +50,7 @@ def BranchPreparation(cli_args=None):
         Add ``\param\sigmabar``, ``\param\temperature``, ``\param\sigmay``.
 
     2.  Copy ``\init`` to ``\restart``.
-        Add ``\restart\epsp``.
+        Add ``\restart\epsp``, ``\restart\t``.
     """
 
     class MyFmt(
@@ -80,6 +81,7 @@ def BranchPreparation(cli_args=None):
         g5.copy(src, dest, ["/meta", "/param"])
         g5.copy(src, dest, "/init", "/restart")
         dest["restart"]["epsp"] = np.zeros(src["param"]["shape"][...], dtype=np.float64)
+        dest["restart"]["t"][...] = 0.0
         dest["param"]["sigmay"] = args.sigmay
         dest["param"]["sigmabar"] = args.sigmabar
         dest["param"]["temperature"] = args.temperature
@@ -143,6 +145,8 @@ def Run(cli_args=None):
                 dset += system.sigmay
             with g5.ExtendableList(res, "state", np.uint64) as dset:
                 dset.append(system.state)
+            with g5.ExtendableList(res, "t", np.float64) as dset:
+                dset.append(system.t)
 
             avalanche = epm.Avalanche()
             avalanche.makeThermalFailureSteps(system, args.ninc)
@@ -156,6 +160,7 @@ def Run(cli_args=None):
             restart["epsp"][...] = system.epsp
             restart["sigma"][...] = system.sigma
             restart["sigmay"][...] = system.sigmay
+            restart["t"][...] = system.t
             restart["state"][...] = system.state
             file.flush()
 

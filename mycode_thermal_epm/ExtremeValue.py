@@ -36,6 +36,7 @@ class SystemStressControl(epm.SystemStressControl):
         self.epsp = restart["epsp"][...]
         self.sigma = restart["sigma"][...]
         self.sigmay = restart["sigmay"][...]
+        self.t = restart["t"][...]
         self.state = restart["state"][...]
         self.sigmabar = param["sigmabar"][...]
 
@@ -48,7 +49,7 @@ def BranchPreparation(cli_args=None):
         Add ``\param\sigmabar``, ``\param\sigmay``.
 
     2.  Copy ``\init`` to ``\restart``.
-        Add ``\restart\epsp``.
+        Add ``\restart\epsp``, ``\restart\t``.
     """
 
     class MyFmt(
@@ -78,6 +79,7 @@ def BranchPreparation(cli_args=None):
         g5.copy(src, dest, ["/meta", "/param"])
         g5.copy(src, dest, "/init", "/restart")
         dest["restart"]["epsp"] = np.zeros(src["param"]["shape"][...], dtype=np.float64)
+        dest["restart"]["t"][...] = 0.0
         dest["param"]["sigmay"] = args.sigmay
         dest["param"]["sigmabar"] = args.sigmabar
         tools.create_check_meta(dest, f"/meta/{m_name}/{funcname}", dev=args.develop)
@@ -135,10 +137,13 @@ def Run(cli_args=None):
                 dset += system.sigmay
             with g5.ExtendableList(res, "state", np.uint64) as dset:
                 dset.append(system.state)
+            with g5.ExtendableList(res, "t", np.float64) as dset:
+                dset.append(system.t)
 
             restart["epsp"][...] = system.epsp
             restart["sigma"][...] = system.sigma
             restart["sigmay"][...] = system.sigmay
+            restart["t"][...] = system.t
             restart["state"][...] = system.state
             file.flush()
 
