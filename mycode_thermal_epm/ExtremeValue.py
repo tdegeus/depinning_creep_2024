@@ -15,6 +15,7 @@ from . import tools
 from ._version import version
 
 f_info = "EnsembleInfo.h5"
+m_name = "ExtremeValue"
 
 
 class SystemStressControl(epm.SystemStressControl):
@@ -32,6 +33,7 @@ class SystemStressControl(epm.SystemStressControl):
             random_stress=False,
         )
 
+        self.epsp = restart["epsp"][...]
         self.sigma = restart["sigma"][...]
         self.sigmay = restart["sigmay"][...]
         self.state = restart["state"][...]
@@ -39,8 +41,14 @@ class SystemStressControl(epm.SystemStressControl):
 
 
 def BranchPreparation(cli_args=None):
-    """
+    r"""
     Branch from prepared stress state and add parameters.
+
+    1.  Copy ``\param``.
+        Add ``\param\sigmabar``, ``\param\sigmay``.
+
+    2.  Copy ``\init`` to ``\restart``.
+        Add ``\restart\epsp``.
     """
 
     class MyFmt(
@@ -57,10 +65,10 @@ def BranchPreparation(cli_args=None):
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("--sigmabar", type=float, default=0.3, help="Stress")
     parser.add_argument(
-        "--sigmay", type=float, nargs=2, default=[1.0, 0.1], help="Mean and std of sigmay"
+        "--sigmay", type=float, nargs=2, default=[1.0, 0.3], help="Mean and std of sigmay"
     )
-    parser.add_argument("input", type=pathlib.Path, help="Input file")
-    parser.add_argument("output", type=pathlib.Path, help="Output file")
+    parser.add_argument("input", type=pathlib.Path, help="Input file (read-only)")
+    parser.add_argument("output", type=pathlib.Path, help="Output file (overwritten)")
 
     args = tools._parse(parser, cli_args)
     assert args.input.exists()
@@ -69,14 +77,16 @@ def BranchPreparation(cli_args=None):
     with h5py.File(args.input) as src, h5py.File(args.output, "w") as dest:
         g5.copy(src, dest, ["/meta", "/param"])
         g5.copy(src, dest, "/init", "/restart")
+        dest["restart"]["epsp"] = np.zeros(src["param"]["shape"][...], dtype=np.float64)
         dest["param"]["sigmay"] = args.sigmay
         dest["param"]["sigmabar"] = args.sigmabar
-        tools.create_check_meta(dest, f"/meta/ExtremeValue/{funcname}", dev=args.develop)
+        tools.create_check_meta(dest, f"/meta/{m_name}/{funcname}", dev=args.develop)
 
 
 def Run(cli_args=None):
     """
-    Measure stability "x" after all sites have failed ``n`` times.
+    Run simulation at fixed stress, and measure "x" at an interval between which all blocks failed
+    an ``--interval`` number of times.
     """
 
     class MyFmt(
@@ -100,18 +110,14 @@ def Run(cli_args=None):
     assert args.file.exists()
 
     with h5py.File(args.file, "a") as file:
-        tools.create_check_meta(file, f"/meta/ExtremeValue/{funcname}", dev=args.develop)
+        tools.create_check_meta(file, f"/meta/{m_name}/{funcname}", dev=args.develop)
         system = SystemStressControl(file)
-
-        if "ExtremeValue" not in file:
-            res = file.create_group("ExtremeValue")
-            res.create_group("sigma")
-            res.create_group("sigmay")
-            res["n"] = 0
-        else:
-            res = file["ExtremeValue"]
-
         restart = file["restart"]
+
+        if m_name not in file:
+            res = file.create_group(m_name)
+        else:
+            res = file[m_name]
 
         for _ in tqdm.tqdm(range(args.measurements), desc=str(args.file)):
             nfails = system.nfails.copy()
@@ -121,11 +127,16 @@ def Run(cli_args=None):
                     break
                 system.makeWeakestFailureSteps(system.size, allow_stable=True)
 
-            n = res["n"][...]
-            res["n"][...] = n + 1
-            res["sigma"][str(n)] = system.sigma
-            res["sigmay"][str(n)] = system.sigmay
+            with g5.ExtendableSlice(res, "epsp", system.shape, np.float64) as dset:
+                dset += system.epsp
+            with g5.ExtendableSlice(res, "sigma", system.shape, np.float64) as dset:
+                dset += system.sigma
+            with g5.ExtendableSlice(res, "sigmay", system.shape, np.float64) as dset:
+                dset += system.sigmay
+            with g5.ExtendableList(res, "state", np.uint64) as dset:
+                dset.append(system.state)
 
+            restart["epsp"][...] = system.epsp
             restart["sigma"][...] = system.sigma
             restart["sigmay"][...] = system.sigmay
             restart["state"][...] = system.state
@@ -165,19 +176,23 @@ def EnsembleInfo(cli_args=None):
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
 
-                res = file["ExtremeValue"]
+                res = file[m_name]
                 n = res["n"][...]
                 for i in range(n):
-                    x += (res["sigmay"][str(i)][...] - res["sigma"][str(i)][...]).tolist()
+                    s = res["sigmay"][str(i)][...] - np.abs(res["sigma"][str(i)][...])
+                    x += (res["sigmay"][str(i)][...] - np.abs(res["sigma"][str(i)][...])).tolist()
 
-    # import GooseMPL as gplt  # noqa: F401
-    # import matplotlib.pyplot as plt  # noqa: F401
+    import GooseMPL as gplt  # noqa: F401
+    import matplotlib.pyplot as plt  # noqa: F401
 
     # plt.style.use(["goose", "goose-latex", "goose-autolayout"])
 
-    # fig, ax = plt.subplots()
-    # hist = enstat.histogram.from_data(x, bins=100, mode="log")
-    # ax.plot(hist.x, hist.p)
-    # ax.set_xscale("log")
-    # ax.set_yscale("log")
+    # fig, axes = gplt.subplots(ncols=2)
+    # hist = enstat.histogram.from_data(x, bins=100)
+    # axes[0].plot(hist.x, hist.p)
+    # ax = axes[1]
+    # cax = ax.imshow(s, interpolation="nearest")
+
+    # cbar = fig.colorbar(cax, aspect=10)
+    # cbar.set_label(r"$\sigma$")
     # plt.show()

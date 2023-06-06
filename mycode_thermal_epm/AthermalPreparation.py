@@ -35,16 +35,20 @@ class SystemStressControl(epm.SystemStressControl):
 
 def Generate(cli_args=None):
     """
-    Generate IO file of the following structure:
+    Generate IO file of the following structure::
 
         |-- param   # ensemble parameters
         |   |-- alpha
         |   |-- shape
         |   `-- interactions
-        `-- init    # initial realisation -> use "Run" to get the full realisation
+        `-- init    # initial realisation -> use "Run" to fill
             |-- sigma
             |-- sigmay
             `-- state
+
+    .. note::
+
+        You can take `t` and `epsp` equal to zero.
     """
 
     class MyFmt(
@@ -63,6 +67,7 @@ def Generate(cli_args=None):
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("-v", "--version", action="version", version=version)
 
+    parser.add_argument("--shape", type=int, nargs=2, help="System shape")
     parser.add_argument("--alpha", type=float, default=1.5, help="Potential type")
     parser.add_argument(
         "--interactions",
@@ -70,14 +75,13 @@ def Generate(cli_args=None):
         choices=["monotonic-shortrange", "monotonic-longrange", "eshelby"],
         help="Interaction type",
     )
-    parser.add_argument("--shape", type=int, nargs=2, help="System shape")
 
     parser.add_argument("outdir", type=pathlib.Path, help="Output directory")
 
     args = tools._parse(parser, cli_args)
     args.outdir.mkdir(parents=True, exist_ok=True)
 
-    n = args.size if args.shape is None else np.prod(args.shape)
+    n = np.prod(args.shape)
     assert not any(
         [
             (args.outdir / f"id={i:04d}.h5").exists()
@@ -97,12 +101,11 @@ def Generate(cli_args=None):
             param["interactions"] = args.interactions
 
             init = file.create_group("init")
-
             init.create_dataset("sigma", shape=args.shape, dtype=np.float64)
 
             init.create_dataset("sigmay", shape=args.shape, dtype=np.float64)
             init["sigmay"].attrs["mean"] = 1.0
-            init["sigmay"].attrs["std"] = 0.1
+            init["sigmay"].attrs["std"] = 0.3
 
             init.create_dataset("state", shape=[], dtype=np.uint64)
             init["state"].attrs["seed"] = seed

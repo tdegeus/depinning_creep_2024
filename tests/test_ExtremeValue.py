@@ -25,18 +25,12 @@ class MyTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(self):
-        self.orgin = pathlib.Path().absolute()
-
         self.origin = pathlib.Path().absolute()
         self.tempdir = tempfile.mkdtemp()
         os.chdir(self.tempdir)
 
     @classmethod
     def tearDownClass(self):
-        """
-        Remove the temporary directory.
-        """
-
         os.chdir(self.origin)
         shutil.rmtree(self.tempdir)
 
@@ -46,19 +40,18 @@ class MyTests(unittest.TestCase):
         )
         AthermalPreparation.Run(["--dev", "id=0000.h5"])
         ExtremeValue.BranchPreparation(
-            ["--dev", "id=0000.h5", "id=0000_qs.h5", "--sigmay", 1.0, 0.1]
+            ["--dev", "id=0000.h5", "id=0000_qs.h5", "--sigmay", 1.0, 0.3]
         )
         ExtremeValue.BranchPreparation(
-            ["--dev", "id=0000.h5", "id=0000_res.h5", "--sigmay", 1.0, 0.1]
+            ["--dev", "id=0000.h5", "id=0000_res.h5", "--sigmay", 1.0, 0.3]
         )
         ExtremeValue.Run(["--dev", "-n", 6, "id=0000_qs.h5"])
         for _ in range(3):
             ExtremeValue.Run(["--dev", "-n", 2, "id=0000_res.h5"])
 
         with h5py.File("id=0000_qs.h5") as a, h5py.File("id=0000_res.h5") as b:
-            for i in range(5):
-                key = f"/ExtremeValue/sigma/{i:d}"
-                self.assertTrue(np.allclose(a[key][...], b[key][...]))
+            key = "/ExtremeValue/sigma"
+            self.assertTrue(np.allclose(a[key][...], b[key][...]))
 
 
 if __name__ == "__main__":

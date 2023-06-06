@@ -16,6 +16,7 @@ from . import tools
 from ._version import version
 
 f_info = "EnsembleInfo.h5"
+m_name = "AthermalQuasiStatic"
 
 
 class SystemSpringLoading(epm.SystemSpringLoading):
@@ -34,6 +35,7 @@ class SystemSpringLoading(epm.SystemSpringLoading):
             random_stress=False,
         )
 
+        self.epsp = restart["epsp"][...]
         self.sigma = restart["sigma"][...]
         self.sigmay = restart["sigmay"][...]
         self.state = restart["state"][...]
@@ -42,8 +44,14 @@ class SystemSpringLoading(epm.SystemSpringLoading):
 
 
 def BranchPreparation(cli_args=None):
-    """
+    r"""
     Branch from prepared stress state and add parameters.
+
+    1.  Copy ``\param``.
+        Add ``\param\kframe``, ``\param\sigmay``.
+
+    2.  Copy ``\init`` to ``\restart``.
+        Add ``\restart\epsp``, ``\restart\step``, and ``\restart\uframe``.
     """
 
     class MyFmt(
@@ -58,12 +66,12 @@ def BranchPreparation(cli_args=None):
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
 
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
-    parser.add_argument(
-        "--sigmay", type=float, nargs=2, default=[1.0, 0.1], help="Mean and std of sigmay"
-    )
     parser.add_argument("--kframe", type=float, help="Frame stiffness (default 1 / L**2)")
-    parser.add_argument("input", type=pathlib.Path, help="Input file")
-    parser.add_argument("output", type=pathlib.Path, help="Output file")
+    parser.add_argument(
+        "--sigmay", type=float, nargs=2, default=[1.0, 0.3], help="Mean and std of sigmay"
+    )
+    parser.add_argument("input", type=pathlib.Path, help="Input file (read-only)")
+    parser.add_argument("output", type=pathlib.Path, help="Output file (overwritten)")
 
     args = tools._parse(parser, cli_args)
     assert args.input.exists()
@@ -72,6 +80,7 @@ def BranchPreparation(cli_args=None):
     with h5py.File(args.input) as src, h5py.File(args.output, "w") as dest:
         g5.copy(src, dest, ["/meta", "/param"])
         g5.copy(src, dest, "/init", "/restart")
+        dest["restart"]["epsp"] = np.zeros(src["param"]["shape"][...], dtype=np.float64)
         dest["restart"]["step"] = 0
         dest["restart"]["uframe"] = 0.0
         dest["param"]["sigmay"] = args.sigmay
@@ -79,12 +88,21 @@ def BranchPreparation(cli_args=None):
             dest["param"]["kframe"] = args.kframe
         else:
             dest["param"]["kframe"] = 1.0 / (np.min(dest["param"]["shape"][...]) ** 2)
-        tools.create_check_meta(dest, f"/meta/AthermalQuasiStatic/{funcname}", dev=args.develop)
+        tools.create_check_meta(dest, f"/meta/{m_name}/{funcname}", dev=args.develop)
 
 
 def Run(cli_args=None):
-    """
+    r"""
     Run simulation for a fixed number of steps.
+
+    -   Write global output per step (``uframe``, ``sigma``, ``T``, ``S``, ``A``) in
+        ``\AthermalQuasiStatic``.
+
+    -   Write state to ``\AthermalQuasiStatic\restore`` every time a system-spanning event occurs
+        (can be used to uniquely restore the system in this state).
+
+    -   Backup state every ``backup_interval`` minutes by overwriting ``\restart``.
+        (can be used to uniquely restore the system in this state).
     """
 
     class MyFmt(
@@ -108,62 +126,113 @@ def Run(cli_args=None):
     assert args.file.exists()
 
     with h5py.File(args.file, "a") as file:
-        tools.create_check_meta(file, f"/meta/AthermalQuasiStatic/{funcname}", dev=args.develop)
+        tools.create_check_meta(file, f"/meta/{m_name}/{funcname}", dev=args.develop)
         system = SystemSpringLoading(file)
-
-        if "AthermalQuasiStatic" not in file:
-            res = file.create_group("AthermalQuasiStatic")
-            end = args.nstep - 1
-            sigma = res.create_dataset("sigma", (args.nstep,), maxshape=(None,), dtype=np.float64)
-            uframe = res.create_dataset("uframe", (args.nstep,), maxshape=(None,), dtype=np.float64)
-            S = res.create_dataset("S", (args.nstep,), maxshape=(None,), dtype=np.int64)
-            A = res.create_dataset("A", (args.nstep,), maxshape=(None,), dtype=np.int64)
-            T = res.create_dataset("T", (args.nstep,), maxshape=(None,), dtype=np.int64)
-            sigma[system.step] = system.sigmabar
-            uframe[system.step] = system.epsframe
-            S[system.step] = 0
-            A[system.step] = 0
-            T[system.step] = 0
-            system.step += 1
-        else:
-            res = file["AthermalQuasiStatic"]
-            system.step += 1
-            end = system.step + args.nstep - 1
-            sigma = res["sigma"]
-            uframe = res["uframe"]
-            S = res["S"]
-            A = res["A"]
-            T = res["T"]
-            for dset in [sigma, uframe, S, A, T]:
-                dset.resize((system.step + args.nstep,))
-
         restart = file["restart"]
+
+        if m_name not in file:
+            res = file.create_group(m_name)
+            restore = res.create_group("restore")
+            start = 0
+        else:
+            res = file[m_name]
+            restore = res["restore"]
+            start = restart["step"][...] + 1
+            # previous run was interrupted -> output arrays exceed restart step -> remove excess
+            for key in ["uframe", "sigma", "T", "S", "A"]:
+                res[key].resize((start,))
+            if "step" in restore:
+                n = np.argmax(restore["step"][...] == start - 1) + 1
+                for key in ["uframe", "state", "step"]:
+                    restore[key].resize((n,))
+                for key in ["epsp", "sigma", "sigmay"]:
+                    restore[key].resize((n, *file["param"]["shape"][...]))
+
         tic = time.time()
-        pbar = tqdm.tqdm(range(system.step, end + 1), desc=str(args.file))
+        pbar = tqdm.tqdm(range(start, start + args.nstep), desc=str(args.file))
 
         for step in pbar:
             pbar.refresh()
             n = np.copy(system.nfails)
             t0 = system.t
+
+            # event-driven protocol
             if step % 2 == 1:
-                system.shiftImposedShear()
+                system.shiftImposedShear()  # leaves >= 1 block unstable
             else:
-                system.relaxAthermal()
+                system.relaxAthermal()  # leaves 0 blocks unstable
 
-            uframe[step] = system.epsframe
-            sigma[step] = system.sigmabar
-            S[step] = np.sum(system.nfails - n)
-            A[step] = np.sum(system.nfails != n)
-            T[step] = system.t - t0
+            # global output
+            with g5.ExtendableList(res, "uframe", np.float64) as dset:
+                dset.append(system.epsframe)
+            with g5.ExtendableList(res, "sigma", np.float64) as dset:
+                dset.append(system.sigmabar)
+            with g5.ExtendableList(res, "T", np.float64) as dset:
+                dset.append(system.t - t0)
+            with g5.ExtendableList(res, "S", np.int64) as dset:
+                dset.append(np.sum(system.nfails - n))
+            with g5.ExtendableList(res, "A", np.int64) as dset:
+                dset.append(np.sum(system.nfails != n))
 
-            if step == end or time.time() - tic > args.backup_interval * 60:
+            # full state
+            if np.sum(system.nfails != n) == system.size:
+                with g5.ExtendableSlice(restore, "epsp", system.shape, np.float64) as dset:
+                    dset += system.epsp
+                with g5.ExtendableSlice(restore, "sigma", system.shape, np.float64) as dset:
+                    dset += system.sigma
+                with g5.ExtendableSlice(restore, "sigmay", system.shape, np.float64) as dset:
+                    dset += system.sigmay
+                with g5.ExtendableList(restore, "uframe", np.float64) as dset:
+                    dset.append(system.epsframe)
+                with g5.ExtendableList(restore, "state", np.uint64) as dset:
+                    dset.append(system.state)
+                with g5.ExtendableList(restore, "step", np.uint64) as dset:
+                    dset.append(step)
+
+            # full state
+            if step == start + args.nstep - 1 or time.time() - tic > args.backup_interval * 60:
                 tic = time.time()
+                restart["epsp"][...] = system.epsp
                 restart["sigma"][...] = system.sigma
                 restart["sigmay"][...] = system.sigmay
                 restart["state"][...] = system.state
                 restart["uframe"][...] = system.epsframe
                 restart["step"][...] = step
                 file.flush()
+
+
+def _norm_uframe(file: h5py.File) -> float:
+    """
+    Return the normalisation of uframe.
+
+    :param file: File to read from.
+    :return: Normalisation of uframe.
+    """
+    kframe = file["/param/kframe"][...]
+    return (kframe + 1.0) / kframe  # mu = 1
+
+
+def _steady_state(file: h5py.File) -> int:
+    """
+    Return the first steady-state step.
+
+    :param file: File to read from.
+    :return: First steady-state step.
+    """
+
+    kframe = file["/param/kframe"][...]
+    u0 = (kframe + 1.0) / kframe  # mu = 1
+
+    res = file[m_name]
+    uframe = res["uframe"][...] / u0
+    sigma = res["sigma"][...]  # mu, mean(sigmay) = 1
+
+    tmp = uframe[0]
+    uframe[0] = 1
+    tangent = sigma / uframe
+    tangent[0] = np.inf
+    uframe[0] = tmp
+    return np.argmax(tangent < 0.95) + 1
 
 
 def EnsembleInfo(cli_args=None):
@@ -198,20 +267,14 @@ def EnsembleInfo(cli_args=None):
             with h5py.File(f) as file:
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
-                    kframe = file["/param/kframe"][...]
-                    u0 = (kframe + 1.0) / kframe  # mu = 1
+                    u0 = _norm_uframe(file)
                     output["/norm/uframe"] = u0
                     output["/norm/sigma"] = 1.0
 
-                uframe = file["/AthermalQuasiStatic/uframe"][...] / u0
-                sigma = file["/AthermalQuasiStatic/sigma"][...]
-                tmp = uframe[0]
-                uframe[0] = 1
-                tangent = sigma / uframe
-                tangent[0] = np.inf
-                uframe[0] = tmp
-
-                i = np.argmax(tangent < 0.95) + 1
+                res = file[m_name]
+                uframe = res["uframe"][...] / u0
+                sigma = res["sigma"][...]
+                i = _steady_state(file)
                 if i % 2 == 0:
                     i += 1
                 if (uframe.size - i) % 2 == 1:
@@ -219,13 +282,14 @@ def EnsembleInfo(cli_args=None):
                 else:
                     end = None
 
+                # copy loading/avalanche data from the 'steady state'
                 elastic["uframe"] += uframe[i:end:2].tolist()
                 elastic["sigma"] += sigma[i:end:2].tolist()
                 plastic["uframe"] += uframe[i + 1 : end : 2].tolist()
                 plastic["sigma"] += sigma[i + 1 : end : 2].tolist()
-                plastic["S"] += file["/AthermalQuasiStatic/S"][i + 1 : end : 2].tolist()
-                plastic["A"] += file["/AthermalQuasiStatic/A"][i + 1 : end : 2].tolist()
-                plastic["T"] += file["/AthermalQuasiStatic/T"][i + 1 : end : 2].tolist()
+                plastic["S"] += res["S"][i + 1 : end : 2].tolist()
+                plastic["A"] += res["A"][i + 1 : end : 2].tolist()
+                plastic["T"] += res["T"][i + 1 : end : 2].tolist()
 
         for key in elastic:
             output["/elastic/" + key] = elastic[key]
@@ -261,16 +325,10 @@ def Plot(cli_args=None):
     assert args.file.exists()
 
     with h5py.File(args.file) as file:
-        kframe = file["/param/kframe"][...]
-        u0 = (kframe + 1.0) / kframe  # mu = 1
-        uframe = file["/AthermalQuasiStatic/uframe"][...] / u0
-        sigma = file["/AthermalQuasiStatic/sigma"][...]
-        tmp = uframe[0]
-        uframe[0] = 1
-        tangent = sigma / uframe
-        tangent[0] = np.inf
-        uframe[0] = tmp
-        i = np.argmax(tangent < 0.95) + 1
+        i = _steady_state(file)
+        res = file[m_name]
+        uframe = res["uframe"][...] / _norm_uframe(file)
+        sigma = res["sigma"][...]
         S = file["/AthermalQuasiStatic/S"][i:].tolist()
 
     S = np.array(S)

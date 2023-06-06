@@ -25,18 +25,12 @@ class MyTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(self):
-        self.orgin = pathlib.Path().absolute()
-
         self.origin = pathlib.Path().absolute()
         self.tempdir = tempfile.mkdtemp()
         os.chdir(self.tempdir)
 
     @classmethod
     def tearDownClass(self):
-        """
-        Remove the temporary directory.
-        """
-
         os.chdir(self.origin)
         shutil.rmtree(self.tempdir)
 
@@ -46,22 +40,25 @@ class MyTests(unittest.TestCase):
         )
         AthermalPreparation.Run(["--dev", "id=0000.h5"])
         AthermalQuasiStatic.BranchPreparation(
-            ["--dev", "id=0000.h5", "id=0000_qs.h5", "--sigmay", 1.0, 0.1]
+            ["--dev", "id=0000.h5", "id=0000_qs.h5", "--sigmay", 1.0, 0.3]
         )
         AthermalQuasiStatic.BranchPreparation(
-            ["--dev", "id=0000.h5", "id=0000_res.h5", "--sigmay", 1.0, 0.1]
+            ["--dev", "id=0000.h5", "id=0000_res.h5", "--sigmay", 1.0, 0.3]
         )
-        AthermalQuasiStatic.Run(["--dev", "-n", 50, "id=0000_qs.h5"])
-        for _ in range(5):
+        AthermalQuasiStatic.Run(["--dev", "-n", 60, "id=0000_qs.h5"])
+        for _ in range(6):
             AthermalQuasiStatic.Run(["--dev", "-n", 10, "id=0000_res.h5"])
 
         with h5py.File("id=0000_qs.h5") as a, h5py.File("id=0000_res.h5") as b:
             aa = a["AthermalQuasiStatic"]
             bb = b["AthermalQuasiStatic"]
-            self.assertTrue(np.allclose(aa["uframe"][...], bb["uframe"][...]))
-            self.assertTrue(np.allclose(aa["sigma"][...], bb["sigma"][...]))
-            self.assertTrue(np.allclose(aa["S"][...], bb["S"][...]))
-            self.assertTrue(np.allclose(aa["A"][...], bb["A"][...]))
+            for key in ["uframe", "sigma", "S", "A", "T"]:
+                self.assertTrue(np.allclose(aa[key][...], bb[key][...]))
+
+            aa = a["AthermalQuasiStatic/restore"]
+            bb = b["AthermalQuasiStatic/restore"]
+            for key in ["epsp", "sigma", "sigmay", "uframe", "state", "step"]:
+                self.assertTrue(np.allclose(aa[key][...], bb[key][...]))
 
         AthermalQuasiStatic.EnsembleInfo(["id=0000_qs.h5"])
 
