@@ -197,21 +197,30 @@ def EnsembleInfo(cli_args=None):
 
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
+                    xc = file["param"]["sigmay"][0] - file["param"]["sigmabar"][...]
+                    alpha = file["param"]["alpha"][...]
+                    temperature = file["param"]["temperature"][...]
+                    t0 = np.exp(xc**alpha / temperature)
+                    output["/norm/xc"] = xc
+                    output["/norm/t0"] = t0
                     hist = enstat.histogram(bin_edges=np.linspace(0, 3, 2001))
-                    tmax = res["T"][-1, -1]
+                    tmax = res["T"][-1, -1] / t0
                     bin_edges = np.linspace(0, 2 * tmax, 2001)
-                    S = enstat.binned(bin_edges, names=["x", "y"])
-                    Ssq = enstat.binned(bin_edges, names=["x", "y"])
-                    A = enstat.binned(bin_edges, names=["x", "y"])
-                    Asq = enstat.binned(bin_edges, names=["x", "y"])
+                    S = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
+                    Ssq = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
+                    A = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
+                    Asq = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
                     N = np.prod(file["param"]["shape"][...])
 
                 hist += (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
                 for i in range(res["T"].shape[0]):
-                    S.add_sample(res["T"][i, ...], (res["S"][i, ...] / N))
-                    Ssq.add_sample(res["T"][i, ...], (res["S"][i, ...] / N) ** 2)
-                    A.add_sample(res["T"][i, ...], (res["A"][i, ...] / N))
-                    Asq.add_sample(res["T"][i, ...], (res["A"][i, ...] / N) ** 2)
+                    ti = res["T"][i, ...] / t0
+                    si = res["S"][i, ...] / N
+                    ai = res["A"][i, ...] / N
+                    S.add_sample(ti, si)
+                    Ssq.add_sample(ti, si**2)
+                    A.add_sample(ti, ai)
+                    Asq.add_sample(ti, ai**2)
 
         output["files"] = sorted([f.name for f in args.files])
 
@@ -255,13 +264,10 @@ def Plot(cli_args=None):
         x = file["hist_x"]["x"][...]
         p = file["hist_x"]["p"][...]
         xc = file["param"]["sigmay"][0] - file["param"]["sigmabar"][...]
-        alpha = file["param"]["alpha"][...]
-        temperature = file["param"]["temperature"][...]
-        t0 = np.exp(xc**alpha / temperature)
 
         chi4_S = file["chi4_S"][...]
         chi4_A = file["chi4_A"][...]
-        t = file["t"][...] / t0
+        t = file["t"][...]
 
     fig, axes = gplt.subplots(ncols=3)
 
