@@ -109,7 +109,7 @@ def Run(cli_args=None):
     parser.add_argument("-v", "--version", action="version", version=version)
     parser.add_argument("--interval", type=int, default=100, help="Measure every #events")
     parser.add_argument("-n", "--measurements", type=int, default=100, help="Total #measurements")
-    parser.add_argument("--ninc", type=int, help="#increments to measure (default: ``10 N``)")
+    parser.add_argument("--ninc", type=int, help="#increments to measure (default: ``20 N``)")
     parser.add_argument("file", type=pathlib.Path, help="Input/output file")
 
     args = tools._parse(parser, cli_args)
@@ -120,7 +120,7 @@ def Run(cli_args=None):
         system = SystemThermalStressControl(file)
         restart = file["restart"]
         if args.ninc is None:
-            args.ninc = 10 * system.size
+            args.ninc = 20 * system.size
         else:
             assert args.ninc > 0
 
