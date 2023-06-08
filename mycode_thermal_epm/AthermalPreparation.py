@@ -1,5 +1,6 @@
 import argparse
 import inspect
+import os
 import pathlib
 import textwrap
 
@@ -75,6 +76,7 @@ def Generate(cli_args=None):
         choices=["monotonic-shortrange", "monotonic-longrange", "eshelby"],
         help="Interaction type",
     )
+    parser.add_argument("--all", action="store_true", help="Generate a suggestion of runs")
 
     parser.add_argument("outdir", type=pathlib.Path, help="Output directory")
 
@@ -110,9 +112,48 @@ def Generate(cli_args=None):
             init.create_dataset("state", shape=[], dtype=np.uint64)
             init["state"].attrs["seed"] = seed
 
-    executable = "AthermalPreparation_Run"
-    commands = [f"{executable} {file}" for file in files]
+    exec = "AthermalPreparation_Run"
+    commands = [f"{exec} {f}" for f in files]
     shelephant.yaml.dump(args.outdir / "commands_run.yaml", commands, force=True)
+
+    if not args.all:
+        return
+
+    assert len(os.path.split(args.outdir)) > 1
+
+    for name in ["AthermalQuasiStatic", "ExtremeValue"]:
+        base = args.outdir / ".." / name
+        base.mkdir(parents=True, exist_ok=True)
+
+        exec = f"{name}_BranchPreparation"
+        commands = [f"{exec} ../{args.outdir.name}/{f} {f}" for f in files]
+        shelephant.yaml.dump(base / "commands_branch.yaml", commands, force=True)
+
+        exec = f"{name}_Run"
+        commands = [f"{exec} {f}" for f in files]
+        shelephant.yaml.dump(base / "commands_run.yaml", commands, force=True)
+
+    name = "Thermal"
+    temperatures = {
+        "temperature=0,005": 0.005,
+        "temperature=0,007": 0.007,
+        "temperature=0,01": 0.01,
+        "temperature=0,05": 0.05,
+        "temperature=0,07": 0.07,
+        "temperature=0,1": 0.1,
+        "temperature=0,5": 0.5,
+    }
+    for key, temp in temperatures.items():
+        base = args.outdir / ".." / name / key
+        base.mkdir(parents=True, exist_ok=True)
+
+        exec = f"{name}_BranchPreparation"
+        commands = [f"{exec} ../../{args.outdir.name}/{f} {f} --temperature {temp}" for f in files]
+        shelephant.yaml.dump(base / "commands_branch.yaml", commands, force=True)
+
+        exec = f"{name}_Run"
+        commands = [f"{exec} {f}" for f in files]
+        shelephant.yaml.dump(base / "commands_run.yaml", commands, force=True)
 
 
 def Run(cli_args=None):
