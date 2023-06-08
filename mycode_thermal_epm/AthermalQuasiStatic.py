@@ -83,6 +83,7 @@ def BranchPreparation(cli_args=None):
         dest["restart"]["epsp"] = np.zeros(src["param"]["shape"][...], dtype=np.float64)
         dest["restart"]["step"] = 0
         dest["restart"]["uframe"] = 0.0
+        dest["restart"]["t"] = 0.0
         dest["param"]["sigmay"] = args.sigmay
         if args.kframe is not None:
             dest["param"]["kframe"] = args.kframe

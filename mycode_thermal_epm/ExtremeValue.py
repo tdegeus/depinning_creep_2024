@@ -79,7 +79,7 @@ def BranchPreparation(cli_args=None):
         g5.copy(src, dest, ["/meta", "/param"])
         g5.copy(src, dest, "/init", "/restart")
         dest["restart"]["epsp"] = np.zeros(src["param"]["shape"][...], dtype=np.float64)
-        dest["restart"]["t"][...] = 0.0
+        dest["restart"]["t"] = 0.0
         dest["param"]["sigmay"] = args.sigmay
         dest["param"]["sigmabar"] = args.sigmabar
         tools.create_check_meta(dest, f"/meta/{m_name}/{funcname}", dev=args.develop)
