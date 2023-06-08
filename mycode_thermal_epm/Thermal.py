@@ -205,7 +205,7 @@ def EnsembleInfo(cli_args=None):
                     output["/norm/t0"] = t0
                     hist = enstat.histogram(bin_edges=np.linspace(0, 3, 2001), bound_error="ignore")
                     tmax = res["T"][-1, -1] / t0
-                    bin_edges = np.linspace(0, 2 * tmax, 2001)
+                    bin_edges = np.linspace(0, 2 * tmax, 2001) # todo: logspace, larger?
                     S = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
                     Ssq = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
                     A = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
