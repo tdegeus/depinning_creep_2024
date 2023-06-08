@@ -90,8 +90,16 @@ def BranchPreparation(cli_args=None):
 
 def Run(cli_args=None):
     """
-    Run simulation at fixed stress, and measure "x" and thermal avalanches during ``--ninc`` steps
-    at an interval between which all blocks failed an ``--interval`` number of times.
+    Run simulation at fixed stress.
+    Measure:
+
+        -   The state every ``--interval`` events.
+            The ``--interval`` is the number of times that all blocks have to have failed between
+            measurements.
+
+        -   Thermal avalanches during ``--ninc`` steps.
+            This measurement can be switched off with ``--flow`` to get minimal output
+            (``mean_epsp`` and ``t``)
     """
 
     class MyFmt(
@@ -110,6 +118,7 @@ def Run(cli_args=None):
     parser.add_argument("--interval", type=int, default=100, help="Measure every #events")
     parser.add_argument("-n", "--measurements", type=int, default=100, help="Total #measurements")
     parser.add_argument("--ninc", type=int, help="#increments to measure (default: ``20 N``)")
+    parser.add_argument("--flow", action="store_true", help="Measure flow only")
     parser.add_argument("file", type=pathlib.Path, help="Input/output file")
 
     args = tools._parse(parser, cli_args)
@@ -137,25 +146,85 @@ def Run(cli_args=None):
                     break
                 system.makeThermalFailureSteps(system.size)
 
-            with g5.ExtendableSlice(res, "epsp", system.shape, np.float64) as dset:
-                dset += system.epsp
-            with g5.ExtendableSlice(res, "sigma", system.shape, np.float64) as dset:
-                dset += system.sigma
-            with g5.ExtendableSlice(res, "sigmay", system.shape, np.float64) as dset:
-                dset += system.sigmay
-            with g5.ExtendableList(res, "state", np.uint64) as dset:
-                dset.append(system.state)
+            with g5.ExtendableList(res, "mean_epsp", np.float64) as dset:
+                dset.append(np.mean(system.epsp))
             with g5.ExtendableList(res, "t", np.float64) as dset:
                 dset.append(system.t)
 
-            avalanche = epm.Avalanche()
-            avalanche.makeThermalFailureSteps(system, args.ninc)
-            with g5.ExtendableSlice(res, "S", [args.ninc], np.uint64) as dset:
-                dset += avalanche.S
-            with g5.ExtendableSlice(res, "A", [args.ninc], np.uint64) as dset:
-                dset += avalanche.A
-            with g5.ExtendableSlice(res, "T", [args.ninc], np.float64) as dset:
-                dset += avalanche.T
+            if not args.flow:
+                with g5.ExtendableSlice(res, "epsp", system.shape, np.float64) as dset:
+                    dset += system.epsp
+                with g5.ExtendableSlice(res, "sigma", system.shape, np.float64) as dset:
+                    dset += system.sigma
+                with g5.ExtendableSlice(res, "sigmay", system.shape, np.float64) as dset:
+                    dset += system.sigmay
+                with g5.ExtendableList(res, "state", np.uint64) as dset:
+                    dset.append(system.state)
+
+                avalanche = epm.Avalanche()
+                avalanche.makeThermalFailureSteps(system, args.ninc)
+                with g5.ExtendableSlice(res, "S", [args.ninc], np.uint64) as dset:
+                    dset += avalanche.S
+                with g5.ExtendableSlice(res, "A", [args.ninc], np.uint64) as dset:
+                    dset += avalanche.A
+                with g5.ExtendableSlice(res, "T", [args.ninc], np.float64) as dset:
+                    dset += avalanche.T
+
+            restart["epsp"][...] = system.epsp
+            restart["sigma"][...] = system.sigma
+            restart["sigmay"][...] = system.sigmay
+            restart["t"][...] = system.t
+            restart["state"][...] = system.state
+            file.flush()
+
+
+def RunFlow(cli_args=None):
+    """
+    Run simulation at fixed stress, and measure the average plastic strain and the time.
+    """
+
+    class MyFmt(
+        argparse.RawDescriptionHelpFormatter,
+        argparse.ArgumentDefaultsHelpFormatter,
+        argparse.MetavarTypeHelpFormatter,
+    ):
+        pass
+
+    funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
+
+    parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
+    parser.add_argument("-v", "--version", action="version", version=version)
+    parser.add_argument("--interval", type=int, default=100, help="Measure every #events")
+    parser.add_argument("-n", "--measurements", type=int, default=100, help="Total #measurements")
+    parser.add_argument("file", type=pathlib.Path, help="Input/output file")
+
+    args = tools._parse(parser, cli_args)
+    assert args.file.exists()
+
+    with h5py.File(args.file, "a") as file:
+        tools.create_check_meta(file, f"/meta/{m_name}/{funcname}", dev=args.develop)
+        system = SystemThermalStressControl(file)
+        restart = file["restart"]
+
+        if m_name not in file:
+            res = file.create_group(m_name)
+        else:
+            res = file[m_name]
+
+        for _ in tqdm.tqdm(range(args.measurements), desc=str(args.file)):
+            nfails = system.nfails.copy()
+            system.makeThermalFailureSteps(args.interval * system.size)
+            while True:
+                if np.all(system.nfails - nfails >= args.interval):
+                    break
+                system.makeThermalFailureSteps(system.size)
+
+            with g5.ExtendableList(res, "mean_epsp", np.float64) as dset:
+                dset.append(np.mean(system.epsp))
+            with g5.ExtendableList(res, "t", np.float64) as dset:
+                dset.append(system.t)
 
             restart["epsp"][...] = system.epsp
             restart["sigma"][...] = system.sigma
@@ -205,7 +274,7 @@ def EnsembleInfo(cli_args=None):
                     output["/norm/t0"] = t0
                     hist = enstat.histogram(bin_edges=np.linspace(0, 3, 2001), bound_error="ignore")
                     tmax = res["T"][-1, -1] / t0
-                    bin_edges = np.linspace(0, 2 * tmax, 2001) # todo: logspace, larger?
+                    bin_edges = np.linspace(0, 2 * tmax, 2001)  # todo: logspace, larger?
                     S = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
                     Ssq = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
                     A = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
