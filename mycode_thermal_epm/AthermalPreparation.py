@@ -130,7 +130,10 @@ def Generate(cli_args=None):
         shelephant.yaml.dump(base / "commands_branch.yaml", commands, force=True)
 
         exec = f"{name}_Run"
-        commands = [f"{exec} {f}" for f in files]
+        if name == "ExtremeValue":
+            commands = [f"{exec} -n 100 {f}" for f in files]
+        else:
+            commands = [f"{exec} {f}" for f in files]
         shelephant.yaml.dump(base / "commands_run.yaml", commands, force=True)
 
     name = "Thermal"
@@ -152,7 +155,7 @@ def Generate(cli_args=None):
         shelephant.yaml.dump(base / "commands_branch.yaml", commands, force=True)
 
         exec = f"{name}_Run"
-        commands = [f"{exec} {f}" for f in files]
+        commands = [f"{exec} -n 100 {f}" for f in files]
         shelephant.yaml.dump(base / "commands_run.yaml", commands, force=True)
 
 
