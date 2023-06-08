@@ -263,13 +263,14 @@ def EnsembleInfo(cli_args=None):
     with h5py.File(args.output, "w") as output:
         elastic = {"uframe": [], "sigma": [], "S": [], "A": [], "T": []}
         plastic = {"uframe": [], "sigma": [], "S": [], "A": [], "T": []}
-        for ifile, f in enumerate(args.files):
+        for ifile, f in enumerate(tqdm.tqdm(args.files)):
             with h5py.File(f) as file:
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
                     u0 = _norm_uframe(file)
                     output["/norm/uframe"] = u0
                     output["/norm/sigma"] = 1.0
+                    hist = enstat.histogram(bin_edges=np.linspace(0, 3, 2001))
 
                 res = file[m_name]
                 uframe = res["uframe"][...] / u0
@@ -291,10 +292,18 @@ def EnsembleInfo(cli_args=None):
                 plastic["A"] += res["A"][i + 1 : end : 2].tolist()
                 plastic["T"] += res["T"][i + 1 : end : 2].tolist()
 
+                if "sigma" in file[m_name]["restore"]:
+                    res = file[m_name]["restore"]
+                    hist += (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
+
         for key in elastic:
             output["/elastic/" + key] = elastic[key]
         for key in plastic:
             output["/plastic/" + key] = plastic[key]
+
+        res = output.create_group("hist_x")
+        res["x"] = hist.x
+        res["p"] = hist.p
 
 
 def Plot(cli_args=None):
