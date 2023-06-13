@@ -296,6 +296,13 @@ def EnsembleInfo(cli_args=None):
         res = output.create_group("hist_x")
         res["x"] = hist.x
         res["p"] = hist.p
+        res["count"] = hist.count
+
+        for name, variable in zip(
+            ["S", "Ssq", "A", "Asq", "t"], [S["y"], Ssq["y"], A["y"], Asq["y"], S["x"]]
+        ):
+            for key, value in variable:
+                output[f"/restore/{name}/{key}"] = value
 
         output["chi4_S"] = N * (Ssq["y"].mean() - S["y"].mean() ** 2)
         output["chi4_A"] = N * (Asq["y"].mean() - A["y"].mean() ** 2)
