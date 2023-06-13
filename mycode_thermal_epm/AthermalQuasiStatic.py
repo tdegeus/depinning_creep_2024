@@ -233,6 +233,9 @@ def _steady_state(file: h5py.File) -> int:
     tangent = sigma / uframe
     tangent[0] = np.inf
     uframe[0] = tmp
+    test = tangent < 0.95
+    if not np.any(test):
+        return len(test)
     return np.argmax(tangent < 0.95) + 1
 
 
