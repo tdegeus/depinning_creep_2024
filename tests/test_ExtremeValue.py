@@ -53,7 +53,7 @@ class MyTests(unittest.TestCase):
             key = "/ExtremeValue/sigma"
             self.assertTrue(np.allclose(a[key][...], b[key][...]))
 
-        ExtremeValue.EnsembleInfo(["id=0000_qs.h5"])
+        ExtremeValue.EnsembleInfo(["--dev", "id=0000_qs.h5"])
 
 
 if __name__ == "__main__":

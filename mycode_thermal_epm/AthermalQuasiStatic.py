@@ -252,6 +252,7 @@ def EnsembleInfo(cli_args=None):
     doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
 
+    parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("-v", "--version", action="version", version=version)
     parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
     parser.add_argument("-o", "--output", type=pathlib.Path, help="Output file", default=f_info)
@@ -262,6 +263,7 @@ def EnsembleInfo(cli_args=None):
     tools._check_overwrite_file(args.output, args.force)
 
     with h5py.File(args.output, "w") as output:
+        tools.create_check_meta(output, f"/meta/{m_name}/{funcname}", dev=args.develop)
         elastic = {"uframe": [], "sigma": [], "S": [], "A": [], "T": []}
         plastic = {"uframe": [], "sigma": [], "S": [], "A": [], "T": []}
         for ifile, f in enumerate(tqdm.tqdm(args.files)):

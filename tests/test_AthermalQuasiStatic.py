@@ -60,7 +60,7 @@ class MyTests(unittest.TestCase):
             for key in ["epsp", "sigma", "sigmay", "uframe", "state", "step"]:
                 self.assertTrue(np.allclose(aa[key][...], bb[key][...]))
 
-        AthermalQuasiStatic.EnsembleInfo(["id=0000_qs.h5"])
+        AthermalQuasiStatic.EnsembleInfo(["--dev", "id=0000_qs.h5"])
 
 
 if __name__ == "__main__":
