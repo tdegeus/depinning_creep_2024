@@ -343,37 +343,43 @@ def Plot(cli_args=None):
         i = _steady_state(file)
         res = file[m_name]
         S = file["/AthermalQuasiStatic/S"][i:].tolist()
-        sigma = file["/AthermalQuasiStatic/restore/sigma"][...]
-        sigmay = file["/AthermalQuasiStatic/restore/sigmay"][...]
-        x = sigmay - np.abs(sigma)
+        if "/AthermalQuasiStatic/restore/sigma" in file:
+            sigma = file["/AthermalQuasiStatic/restore/sigma"][...]
+            sigmay = file["/AthermalQuasiStatic/restore/sigmay"][...]
+            x = sigmay - np.abs(sigma)
+        else:
+            x = None
         uframe = res["uframe"][...] / _norm_uframe(file)
         sigma = res["sigma"][...]
 
     S = np.array(S)
     S = S[S > 0]
-    hist = enstat.histogram.from_data(S, bins=100, mode="log")
 
     fig, axes = gplt.subplots(ncols=3)
 
     ax = axes[0]
     ax.plot(uframe, sigma, marker=".")
-    ax.axvline(uframe[i], ls="-", c="r", lw=1)
+    if i < uframe.size:
+        ax.axvline(uframe[i], ls="-", c="r", lw=1)
     ax.set_xlabel(r"$\bar{u}$")
     ax.set_ylabel(r"$\bar{\sigma}$")
 
     ax = axes[1]
-    ax.plot(hist.x, hist.p)
-    keep = np.logical_and(hist.x > 1e1, hist.x < 1e5)
-    gplt.fit_powerlaw(hist.x[keep], hist.p[keep], axis=ax, auto_fmt="S")
-    ax.legend()
+    if len(S) > 0:
+        hist = enstat.histogram.from_data(S, bins=100, mode="log")
+        ax.plot(hist.x, hist.p)
+        keep = np.logical_and(hist.x > 1e1, hist.x < 1e5)
+        gplt.fit_powerlaw(hist.x[keep], hist.p[keep], axis=ax, auto_fmt="S")
+        ax.legend()
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel(r"$S$")
     ax.set_ylabel(r"$P(S)$")
 
     ax = axes[2]
-    hist = enstat.histogram.from_data(x, bins=100, mode="log")
-    ax.plot(hist.x, hist.p)
+    if x is not None:
+        hist = enstat.histogram.from_data(x, bins=100, mode="log")
+        ax.plot(hist.x, hist.p)
     ax.set_xlabel(r"$x$")
     ax.set_ylabel(r"$P(x)$")
 
