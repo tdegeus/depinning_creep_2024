@@ -141,9 +141,12 @@ def Generate(cli_args=None):
         "temperature=0,005": 0.005,
         "temperature=0,007": 0.007,
         "temperature=0,01": 0.01,
+        "temperature=0,02": 0.02,
+        "temperature=0,03": 0.03,
         "temperature=0,05": 0.05,
         "temperature=0,07": 0.07,
         "temperature=0,1": 0.1,
+        "temperature=0,2": 0.2,
         "temperature=0,5": 0.5,
     }
     for key, temp in temperatures.items():
