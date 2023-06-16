@@ -4,7 +4,14 @@ requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
 [project]
 authors = [{name = "Tom de Geus", email = "tom@geus.me"}]
 classifiers = ["License :: OSI Approved :: MIT License"]
-dependencies = ["numpy", "tqdm", "h5py", "enstat", "GooseEPM >=0.5.0", "GooseHDF5 >=0.23.0"]
+dependencies = [
+  "enstat",
+  "GooseEPM >=0.5.1",
+  "GooseHDF5 >=0.23.0",
+  "h5py",
+  "numpy",
+  "tqdm"
+]
 description = "Simple dataset management"
 dynamic = ["version"]
 name = "mycode_thermal_epm"

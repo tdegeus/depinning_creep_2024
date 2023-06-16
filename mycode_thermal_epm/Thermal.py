@@ -163,6 +163,8 @@ def Run(cli_args=None):
 
                 avalanche = epm.Avalanche()
                 avalanche.makeThermalFailureSteps(system, args.ninc)
+                with g5.ExtendableSlice(res, "idx", [args.ninc], np.uint64) as dset:
+                    dset += avalanche.idx
                 with g5.ExtendableSlice(res, "S", [args.ninc], np.uint64) as dset:
                     dset += avalanche.S
                 with g5.ExtendableSlice(res, "A", [args.ninc], np.uint64) as dset:
