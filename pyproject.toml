@@ -33,6 +33,7 @@ Thermal_BranchPreparation = "mycode_thermal_epm.Thermal:BranchPreparation"
 Thermal_EnsembleInfo = "mycode_thermal_epm.Thermal:EnsembleInfo"
 Thermal_Plot = "mycode_thermal_epm.Thermal:Plot"
 Thermal_Run = "mycode_thermal_epm.Thermal:Run"
+Thermal_UpgradeData = "mycode_thermal_epm.Thermal:UpgradeData"
 
 [project.urls]
 Source = "https://github.com/tdegeus/mycode_thermal_epm"

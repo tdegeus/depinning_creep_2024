@@ -2,6 +2,8 @@ import argparse
 import inspect
 import os
 import pathlib
+import shutil
+import tempfile
 import textwrap
 
 import GooseEPM as epm
@@ -9,14 +11,78 @@ import h5py
 import numpy as np
 import shelephant
 
+from . import tag
 from . import tools
 from ._version import version
+
+data_version = "1.0"
 
 
 def propagator(param: h5py.Group):
     if param["interactions"].asstr()[...] == "monotonic-shortrange":
         return epm.laplace_propagator()
     raise NotImplementedError("Unknown interactions type '%s'" % param["interactions"])
+
+
+def get_data_version(file: h5py.File) -> str:
+    """
+    Read the current data version from the file.
+
+    :param file: Opened file.
+    :return: Data version.
+    """
+    if "/param/data_version" in file:
+        return str(file["/param/data_version"].asstr()[...])
+    return "0.0"
+
+
+def _upgrade_data(filename: pathlib.Path, temp_file: pathlib.Path) -> bool:
+    """
+    Upgrade data to the current version.
+
+    :param filename: Input filename.
+    :param temp_file: Temporary filename.
+    :return: True if the file was upgraded.
+    """
+    return False
+
+
+def UpgradeData(cli_args=None, upgrade_function=_upgrade_data):
+    r"""
+    Upgrade data to the current version.
+    """
+
+    class MyFmt(
+        argparse.RawDescriptionHelpFormatter,
+        argparse.ArgumentDefaultsHelpFormatter,
+        argparse.MetavarTypeHelpFormatter,
+    ):
+        pass
+
+    funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
+
+    parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
+    parser.add_argument("--no-bak", action="store_true", help="Do not backup before modifying")
+    parser.add_argument("files", type=pathlib.Path, nargs="*", help="File (overwritten)")
+
+    args = tools._parse(parser, cli_args)
+    assert all([f.is_file() for f in args.files]), "File not found"
+    assert args.no_bak or not any([(f.parent / (f.name + ".bak")).exists() for f in args.files])
+    assert args.develop or not tag.has_uncommitted(version), "Uncommitted changes"
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_dir = pathlib.Path(temp_dir)
+        temp_file = temp_dir / "new.h5"
+        for filename in args.files:
+            changed = upgrade_function(filename, temp_file)
+            if not changed:
+                continue
+            if not args.no_bak:
+                bakname = filename.parent / (filename.name + ".bak")
+                shutil.copy2(filename, bakname)
+            shutil.copy2(temp_file, filename)
 
 
 class SystemStressControl(epm.SystemStressControl):

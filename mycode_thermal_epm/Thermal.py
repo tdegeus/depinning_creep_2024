@@ -11,8 +11,10 @@ import numpy as np
 import tqdm
 
 from . import AthermalPreparation
+from . import tag
 from . import tools
 from ._version import version
+from .AthermalPreparation import data_version
 
 f_info = "EnsembleInfo.h5"
 m_name = "Thermal"
@@ -40,6 +42,41 @@ class SystemThermalStressControl(epm.SystemThermalStressControl):
         self.state = restart["state"][...]
         self.sigmabar = param["sigmabar"][...]
         self.temperature = param["temperature"][...]
+
+
+def _upgrade_data(filename: pathlib.Path, temp_file: pathlib.Path) -> bool:
+    """
+    Upgrade data to the current version.
+
+    :param filename: Input filename.
+    :param temp_file: Temporary filename.
+    :return: True if the file was upgraded.
+    """
+    with h5py.File(filename) as src:
+        assert "Thermal" in src, "Not a 'Thermal' file"
+
+        if tag.greater_equal(AthermalPreparation.get_data_version(src), "1.0"):
+            return False
+
+        with h5py.File(temp_file, "w") as dst:
+            paths = g5.getdatapaths(src)
+            paths.remove("/Thermal/S")
+
+            S = src["Thermal/S"][...]
+            expect = np.arange(S.shape[1]).reshape((1, -1))
+            assert np.all(np.equal(S, expect)), "S must arange"
+
+            g5.copy(src, dst, paths)
+            dst["/param/data_version"] = data_version
+
+    return True
+
+
+def UpgradeData(cli_args=None):
+    r"""
+    Upgrade data to the current version.
+    """
+    AthermalPreparation.UpgradeData(cli_args, _upgrade_data)
 
 
 def BranchPreparation(cli_args=None):
@@ -165,8 +202,6 @@ def Run(cli_args=None):
                 avalanche.makeThermalFailureSteps(system, args.ninc)
                 with g5.ExtendableSlice(res, "idx", [args.ninc], np.uint64) as dset:
                     dset += avalanche.idx
-                with g5.ExtendableSlice(res, "S", [args.ninc], np.uint64) as dset:
-                    dset += avalanche.S
                 with g5.ExtendableSlice(res, "A", [args.ninc], np.uint64) as dset:
                     dset += avalanche.A
                 with g5.ExtendableSlice(res, "T", [args.ninc], np.float64) as dset:
@@ -288,8 +323,8 @@ def EnsembleInfo(cli_args=None):
                 hist += (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
                 for i in range(res["T"].shape[0]):
                     ti = res["T"][i, ...] / t0
-                    si = res["S"][i, ...] / N
                     ai = res["A"][i, ...] / N
+                    si = np.arange(ti.size) / N
                     S.add_sample(ti, si)
                     Ssq.add_sample(ti, si**2)
                     A.add_sample(ti, ai)
