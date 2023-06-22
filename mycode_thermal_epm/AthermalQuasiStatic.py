@@ -17,6 +17,7 @@ from ._version import version
 
 f_info = "EnsembleInfo.h5"
 m_name = "AthermalQuasiStatic"
+m_exclude = ["Thermal", "ExtremeValue"]
 
 
 class SystemSpringLoading(epm.SystemSpringLoading):
@@ -78,6 +79,7 @@ def BranchPreparation(cli_args=None):
     assert not args.output.exists()
 
     with h5py.File(args.input) as src, h5py.File(args.output, "w") as dest:
+        assert not any(m in src for m in m_exclude), "Wrong file type"
         g5.copy(src, dest, ["/meta", "/param"])
         g5.copy(src, dest, "/init", "/restart")
         dest["restart"]["epsp"] = np.zeros(src["param"]["shape"][...], dtype=np.float64)
@@ -132,6 +134,7 @@ def Run(cli_args=None):
         restart = file["restart"]
 
         if m_name not in file:
+            assert not any(m in file for m in m_exclude), "Wrong file type"
             res = file.create_group(m_name)
             restore = res.create_group("restore")
             start = 0
@@ -277,6 +280,10 @@ def EnsembleInfo(cli_args=None):
                     output["/norm/uframe"] = u0
                     output["/norm/sigma"] = 1.0
                     hist = enstat.histogram(bin_edges=np.linspace(0, 3, 2001))
+
+                if m_name not in file:
+                    assert not any(m in file for m in m_exclude), "Wrong file type"
+                    continue
 
                 res = file[m_name]
                 uframe = res["uframe"][...] / u0

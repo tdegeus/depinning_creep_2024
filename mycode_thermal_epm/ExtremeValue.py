@@ -16,6 +16,7 @@ from ._version import version
 
 f_info = "EnsembleInfo.h5"
 m_name = "ExtremeValue"
+m_exclude = ["Thermal", "AthermalQuasiStatic"]
 
 
 class SystemStressControl(epm.SystemStressControl):
@@ -76,6 +77,7 @@ def BranchPreparation(cli_args=None):
     assert not args.output.exists()
 
     with h5py.File(args.input) as src, h5py.File(args.output, "w") as dest:
+        assert not any(m in src for m in m_exclude), "Wrong file type"
         g5.copy(src, dest, ["/meta", "/param"])
         g5.copy(src, dest, "/init", "/restart")
         dest["restart"]["epsp"] = np.zeros(src["param"]["shape"][...], dtype=np.float64)
@@ -117,6 +119,7 @@ def Run(cli_args=None):
         restart = file["restart"]
 
         if m_name not in file:
+            assert not any(m in file for m in m_exclude), "Wrong file type"
             res = file.create_group(m_name)
         else:
             res = file[m_name]
@@ -178,12 +181,15 @@ def EnsembleInfo(cli_args=None):
         tools.create_check_meta(output, f"/meta/{m_name}/{funcname}", dev=args.develop)
         for ifile, f in enumerate(tqdm.tqdm(args.files)):
             with h5py.File(f) as file:
-                res = file[m_name]
-
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
                     hist = enstat.histogram(bin_edges=np.linspace(0, 3, 2001))
 
+                if m_name not in file:
+                    assert not any(m in file for m in m_exclude), "Wrong file type"
+                    continue
+
+                res = file[m_name]
                 hist += (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
 
         output["files"] = sorted([f.name for f in args.files])
