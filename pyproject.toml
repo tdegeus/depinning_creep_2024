@@ -29,6 +29,7 @@ ExtremeValue_BranchPreparation = "mycode_thermal_epm.ExtremeValue:BranchPreparat
 ExtremeValue_EnsembleInfo = "mycode_thermal_epm.ExtremeValue:EnsembleInfo"
 ExtremeValue_Plot = "mycode_thermal_epm.ExtremeValue:Plot"
 ExtremeValue_Run = "mycode_thermal_epm.ExtremeValue:Run"
+ExtremeValue_RunAvalache = "mycode_thermal_epm.ExtremeValue:RunAvalache"
 Thermal_BranchPreparation = "mycode_thermal_epm.Thermal:BranchPreparation"
 Thermal_EnsembleInfo = "mycode_thermal_epm.Thermal:EnsembleInfo"
 Thermal_Plot = "mycode_thermal_epm.Thermal:Plot"

@@ -55,6 +55,9 @@ class MyTests(unittest.TestCase):
 
         ExtremeValue.EnsembleInfo(["--dev", "id=0000_qs.h5"])
 
+        ExtremeValue.BranchRun(["--dev", "id=0000_qs.h5", "id=0000_ava.h5"])
+        ExtremeValue.RunAvalanche(["--dev", "id=0000_ava.h5"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
