@@ -207,6 +207,9 @@ def RunAvalanche(cli_args=None):
 
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("-v", "--version", action="version", version=version)
+    parser.add_argument(
+        "-n", "--ninc-size", type=int, help="--ninc in units of system size", default=100
+    )
     parser.add_argument("--ninc", type=int, help="#increments to measure (default: ``100 N``)")
     parser.add_argument("--ncache", type=int, help="write output every #increments (default: N)")
     parser.add_argument("file", type=pathlib.Path, help="Input/output file")
@@ -219,7 +222,7 @@ def RunAvalanche(cli_args=None):
         system = SystemStressControl(file)
         restart = file["restart"]
         if args.ninc is None:
-            args.ninc = 100 * system.size
+            args.ninc = args.ninc_size * system.size
         if args.ncache is None:
             args.ncache = system.size
 
