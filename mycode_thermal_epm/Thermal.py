@@ -218,63 +218,6 @@ def Run(cli_args=None):
             file.flush()
 
 
-def RunFlow(cli_args=None):
-    """
-    Run simulation at fixed stress, and measure the average plastic strain and the time.
-    """
-
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
-
-    funcname = inspect.getframeinfo(inspect.currentframe()).function
-    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
-    parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
-
-    parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
-    parser.add_argument("-v", "--version", action="version", version=version)
-    parser.add_argument("--interval", type=int, default=100, help="Measure every #events")
-    parser.add_argument("-n", "--measurements", type=int, default=100, help="Total #measurements")
-    parser.add_argument("file", type=pathlib.Path, help="Input/output file")
-
-    args = tools._parse(parser, cli_args)
-    assert args.file.exists()
-
-    with h5py.File(args.file, "a") as file:
-        tools.create_check_meta(file, f"/meta/{m_name}/{funcname}", dev=args.develop)
-        system = SystemThermalStressControl(file)
-        restart = file["restart"]
-
-        if m_name not in file:
-            assert not any(m in file for m in m_exclude), "Wrong file type"
-            res = file.create_group(m_name)
-        else:
-            res = file[m_name]
-
-        for _ in tqdm.tqdm(range(args.measurements), desc=str(args.file)):
-            nfails = system.nfails.copy()
-            system.makeThermalFailureSteps(args.interval * system.size)
-            while True:
-                if np.all(system.nfails - nfails >= args.interval):
-                    break
-                system.makeThermalFailureSteps(system.size)
-
-            with g5.ExtendableList(res, "mean_epsp", np.float64) as dset:
-                dset.append(np.mean(system.epsp))
-            with g5.ExtendableList(res, "t", np.float64) as dset:
-                dset.append(system.t)
-
-            restart["epsp"][...] = system.epsp
-            restart["sigma"][...] = system.sigma
-            restart["sigmay"][...] = system.sigmay
-            restart["t"][...] = system.t
-            restart["state"][...] = system.state
-            file.flush()
-
-
 def EnsembleInfo(cli_args=None):
     """
     Basic interpretation of the ensemble.
