@@ -89,8 +89,16 @@ def BranchPreparation(cli_args=None):
 
 def Run(cli_args=None):
     """
-    Run simulation at fixed stress, and measure "x" at an interval between which all blocks failed
-    an ``--interval`` number of times.
+    Run simulation at fixed stress.
+    Measure:
+
+        -   The state every ``--interval`` events.
+            The ``--interval`` is the number of times that all blocks have to have failed between
+            measurements.
+
+        -   Avalanches during ``--ninc`` steps.
+            This measurement can be switched off with ``--flow`` to get minimal output
+            (``mean_epsp`` and ``t``)
     """
 
     class MyFmt(
@@ -108,6 +116,7 @@ def Run(cli_args=None):
     parser.add_argument("-v", "--version", action="version", version=version)
     parser.add_argument("--interval", type=int, default=100, help="Measure every #events")
     parser.add_argument("-n", "--measurements", type=int, default=100, help="Total #measurements")
+    parser.add_argument("--ninc", type=int, help="#increments to measure (default: ``20 N``)")
     parser.add_argument("file", type=pathlib.Path, help="Input/output file")
 
     args = tools._parse(parser, cli_args)
@@ -117,6 +126,10 @@ def Run(cli_args=None):
         tools.create_check_meta(file, f"/meta/{m_name}/{funcname}", dev=args.develop)
         system = SystemStressControl(file)
         restart = file["restart"]
+        if args.ninc is None:
+            args.ninc = 20 * system.size
+        else:
+            assert args.ninc > 0
 
         if m_name not in file:
             assert not any(m in file for m in m_exclude), "Wrong file type"
@@ -132,16 +145,27 @@ def Run(cli_args=None):
                     break
                 system.makeWeakestFailureSteps(system.size, allow_stable=True)
 
-            with g5.ExtendableSlice(res, "epsp", system.shape, np.float64) as dset:
-                dset += system.epsp
-            with g5.ExtendableSlice(res, "sigma", system.shape, np.float64) as dset:
-                dset += system.sigma
-            with g5.ExtendableSlice(res, "sigmay", system.shape, np.float64) as dset:
-                dset += system.sigmay
-            with g5.ExtendableList(res, "state", np.uint64) as dset:
-                dset.append(system.state)
-            with g5.ExtendableList(res, "t", np.float64) as dset:
-                dset.append(system.t)
+            if True:
+                with g5.ExtendableSlice(res, "epsp", system.shape, np.float64) as dset:
+                    dset += system.epsp
+                with g5.ExtendableSlice(res, "sigma", system.shape, np.float64) as dset:
+                    dset += system.sigma
+                with g5.ExtendableSlice(res, "sigmay", system.shape, np.float64) as dset:
+                    dset += system.sigmay
+                with g5.ExtendableList(res, "state", np.uint64) as dset:
+                    dset.append(system.state)
+                with g5.ExtendableList(res, "t", np.float64) as dset:
+                    dset.append(system.t)
+
+            if args.ninc > 0:
+                avalanche = epm.AvalancheWeakest()
+                avalanche.makeWeakestFailureSteps(system, args.ninc)
+                with g5.ExtendableSlice(res, "idx", [args.ninc], np.uint64) as dset:
+                    dset += avalanche.idx
+                with g5.ExtendableSlice(res, "A", [args.ninc], np.uint64) as dset:
+                    dset += avalanche.A
+                with g5.ExtendableSlice(res, "xmin", [args.ninc], np.float64) as dset:
+                    dset += avalanche.xmin
 
             restart["epsp"][...] = system.epsp
             restart["sigma"][...] = system.sigma

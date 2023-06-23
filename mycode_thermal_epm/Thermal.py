@@ -136,7 +136,7 @@ def Run(cli_args=None):
             The ``--interval`` is the number of times that all blocks have to have failed between
             measurements.
 
-        -   Thermal avalanches during ``--ninc`` steps.
+        -   Avalanches during ``--ninc`` steps.
             This measurement can be switched off with ``--flow`` to get minimal output
             (``mean_epsp`` and ``t``)
     """
@@ -157,7 +157,7 @@ def Run(cli_args=None):
     parser.add_argument("--interval", type=int, default=100, help="Measure every #events")
     parser.add_argument("-n", "--measurements", type=int, default=100, help="Total #measurements")
     parser.add_argument("--ninc", type=int, help="#increments to measure (default: ``20 N``)")
-    parser.add_argument("--flow", action="store_true", help="Measure flow only")
+    parser.add_argument("--flow", action="store_true", help="Flow only (min. out., no avalanches)")
     parser.add_argument("file", type=pathlib.Path, help="Input/output file")
 
     args = tools._parse(parser, cli_args)
@@ -201,6 +201,7 @@ def Run(cli_args=None):
                 with g5.ExtendableList(res, "state", np.uint64) as dset:
                     dset.append(system.state)
 
+            if args.ninc > 0 and not args.flow:
                 avalanche = epm.Avalanche()
                 avalanche.makeThermalFailureSteps(system, args.ninc)
                 with g5.ExtendableSlice(res, "idx", [args.ninc], np.uint64) as dset:
