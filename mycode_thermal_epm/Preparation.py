@@ -15,7 +15,7 @@ from . import tag
 from . import tools
 from ._version import version
 
-data_version = "1.0"
+data_version = "2.0"
 
 
 def propagator(param: h5py.Group):
@@ -161,7 +161,7 @@ def Generate(cli_args=None):
         files += [f"id={i:04d}.h5"]
         seed = i * n
         with h5py.File(args.outdir / files[-1], "w") as file:
-            tools.create_check_meta(file, f"/meta/AthermalPreparation/{funcname}", dev=args.develop)
+            tools.create_check_meta(file, f"/meta/Preparation/{funcname}", dev=args.develop)
 
             param = file.create_group("param")
             param["alpha"] = args.alpha
@@ -178,7 +178,7 @@ def Generate(cli_args=None):
             init.create_dataset("state", shape=[], dtype=np.uint64)
             init["state"].attrs["seed"] = seed
 
-    exec = "AthermalPreparation_Run"
+    exec = "Preparation_Run"
     commands = [f"{exec} {f}" for f in files]
     shelephant.yaml.dump(args.outdir / "commands_run.yaml", commands, force=True)
 
@@ -187,7 +187,7 @@ def Generate(cli_args=None):
 
     assert len(os.path.split(args.outdir)) > 1
 
-    for name in ["AthermalQuasiStatic", "ExtremeValue"]:
+    for name in ["AQS", "Extremal"]:
         base = args.outdir / ".." / name
         base.mkdir(parents=True, exist_ok=True)
 
@@ -196,7 +196,7 @@ def Generate(cli_args=None):
         shelephant.yaml.dump(base / "commands_branch.yaml", commands, force=True)
 
         exec = f"{name}_Run"
-        if name == "ExtremeValue":
+        if name == "Extremal":
             commands = [f"{exec} -n 100 {f}" for f in files]
         else:
             commands = [f"{exec} {f}" for f in files]
@@ -252,7 +252,7 @@ def Run(cli_args=None):
     assert args.file.exists()
 
     with h5py.File(args.file, "a") as file:
-        tools.create_check_meta(file, f"/meta/AthermalPreparation/{funcname}", dev=args.develop)
+        tools.create_check_meta(file, f"/meta/Preparation/{funcname}", dev=args.develop)
         system = SystemStressControl(file)
         init = file["init"]
         init["sigma"][...] = system.sigma
