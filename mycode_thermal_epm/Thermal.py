@@ -10,15 +10,15 @@ import h5py
 import numpy as np
 import tqdm
 
-from . import AthermalPreparation
+from . import Preparation
 from . import tag
 from . import tools
 from ._version import version
-from .AthermalPreparation import data_version
+from .Preparation import data_version
 
 f_info = "EnsembleInfo.h5"
 m_name = "Thermal"
-m_exclude = ["ExtremeValue", "AthermalQuasiStatic"]
+m_exclude = ["Extremal", "AQS"]
 
 
 class SystemThermalStressControl(epm.SystemThermalStressControl):
@@ -28,7 +28,7 @@ class SystemThermalStressControl(epm.SystemThermalStressControl):
 
         epm.SystemThermalStressControl.__init__(
             self,
-            *AthermalPreparation.propagator(param),
+            *Preparation.propagator(param),
             sigmay_mean=np.ones(param["shape"][...]) * param["sigmay"][0],
             sigmay_std=np.ones(param["shape"][...]) * param["sigmay"][1],
             seed=restart["state"].attrs["seed"],
@@ -56,7 +56,7 @@ def _upgrade_data(filename: pathlib.Path, temp_file: pathlib.Path) -> bool:
     with h5py.File(filename) as src:
         assert "Thermal" in src, "Not a 'Thermal' file"
 
-        if tag.greater_equal(AthermalPreparation.get_data_version(src), "1.0"):
+        if tag.greater_equal(Preparation.get_data_version(src), "1.0"):
             return False
 
         with h5py.File(temp_file, "w") as dst:
@@ -77,7 +77,7 @@ def UpgradeData(cli_args=None):
     r"""
     Upgrade data to the current version.
     """
-    AthermalPreparation.UpgradeData(cli_args, _upgrade_data)
+    Preparation.UpgradeData(cli_args, _upgrade_data)
 
 
 def BranchPreparation(cli_args=None):

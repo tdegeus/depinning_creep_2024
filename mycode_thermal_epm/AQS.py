@@ -11,13 +11,13 @@ import h5py
 import numpy as np
 import tqdm
 
-from . import AthermalPreparation
+from . import Preparation
 from . import tools
 from ._version import version
 
 f_info = "EnsembleInfo.h5"
-m_name = "AthermalQuasiStatic"
-m_exclude = ["Thermal", "ExtremeValue"]
+m_name = "AQS"
+m_exclude = ["Thermal", "Extremal"]
 
 
 class SystemSpringLoading(epm.SystemSpringLoading):
@@ -27,7 +27,7 @@ class SystemSpringLoading(epm.SystemSpringLoading):
 
         epm.SystemSpringLoading.__init__(
             self,
-            *AthermalPreparation.propagator(param),
+            *Preparation.propagator(param),
             sigmay_mean=np.ones(param["shape"][...]) * param["sigmay"][0],
             sigmay_std=np.ones(param["shape"][...]) * param["sigmay"][1],
             seed=restart["state"].attrs["seed"],
@@ -99,9 +99,9 @@ def Run(cli_args=None):
     Run simulation for a fixed number of steps.
 
     -   Write global output per step (``uframe``, ``sigma``, ``T``, ``S``, ``A``) in
-        ``\AthermalQuasiStatic``.
+        ``\AQS``.
 
-    -   Write state to ``\AthermalQuasiStatic\restore`` every time a system-spanning event occurs
+    -   Write state to ``\AQS\restore`` every time a system-spanning event occurs
         (can be used to uniquely restore the system in this state).
 
     -   Backup state every ``backup_interval`` minutes by overwriting ``\restart``.
@@ -349,10 +349,10 @@ def Plot(cli_args=None):
     with h5py.File(args.file) as file:
         i = _steady_state(file)
         res = file[m_name]
-        S = file["/AthermalQuasiStatic/S"][i:].tolist()
-        if "/AthermalQuasiStatic/restore/sigma" in file:
-            sigma = file["/AthermalQuasiStatic/restore/sigma"][...]
-            sigmay = file["/AthermalQuasiStatic/restore/sigmay"][...]
+        S = file["/AQS/S"][i:].tolist()
+        if "/AQS/restore/sigma" in file:
+            sigma = file["/AQS/restore/sigma"][...]
+            sigmay = file["/AQS/restore/sigmay"][...]
             x = sigmay - np.abs(sigma)
         else:
             x = None

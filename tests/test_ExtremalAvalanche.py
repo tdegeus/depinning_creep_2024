@@ -16,7 +16,8 @@ root = pathlib.Path(__file__).parent.parent.absolute()
 if (root / "mycode_thermal_epm" / "_version.py").exists():
     sys.path.insert(0, str(root))
 
-from mycode_thermal_epm import Thermal  # noqa: E402
+from mycode_thermal_epm import ExtremalAvalanche  # noqa: E402
+from mycode_thermal_epm import Extremal  # noqa: E402
 from mycode_thermal_epm import Preparation  # noqa: E402
 
 
@@ -39,21 +40,10 @@ class MyTests(unittest.TestCase):
             ["--dev", "-n", 1, "--interactions", "monotonic-shortrange", "--shape", 10, 10, "."]
         )
         Preparation.Run(["--dev", "id=0000.h5"])
-        Thermal.BranchPreparation(
-            ["--dev", "id=0000.h5", "id=0000_sim.h5", "--sigmay", 1.0, 0.3, "--temperature", 0.1]
-        )
-        Thermal.BranchPreparation(
-            ["--dev", "id=0000.h5", "id=0000_res.h5", "--sigmay", 1.0, 0.3, "--temperature", 0.1]
-        )
-        Thermal.Run(["--dev", "-n", 6, "id=0000_sim.h5"])
-        for _ in range(3):
-            Thermal.Run(["--dev", "-n", 2, "id=0000_res.h5"])
-
-        with h5py.File("id=0000_sim.h5") as a, h5py.File("id=0000_res.h5") as b:
-            key = "/Thermal/sigma"
-            self.assertTrue(np.allclose(a[key][...], b[key][...]))
-
-        Thermal.EnsembleInfo(["--dev", "id=0000_sim.h5"])
+        Extremal.BranchPreparation(["--dev", "id=0000.h5", "id=0000_sim.h5", "--sigmay", 1.0, 0.3])
+        Extremal.Run(["--dev", "-n", 6, "id=0000_sim.h5"])
+        ExtremalAvalanche.BranchExtremal(["--dev", "id=0000_sim.h5", "id=0000_ava.h5"])
+        ExtremalAvalanche.Run(["--dev", "id=0000_ava.h5"])
 
 
 if __name__ == "__main__":
