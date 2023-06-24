@@ -6,8 +6,6 @@ import tempfile
 import unittest
 from functools import partialmethod
 
-import h5py
-import numpy as np
 from tqdm import tqdm
 
 tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
@@ -43,6 +41,7 @@ class MyTests(unittest.TestCase):
         Extremal.BranchPreparation(["--dev", "id=0000.h5", "id=0000_sim.h5", "--sigmay", 1.0, 0.3])
         Extremal.Run(["--dev", "-n", 6, "id=0000_sim.h5"])
         ExtremalAvalanche.BranchExtremal(["--dev", "id=0000_sim.h5", "id=0000_ava.h5"])
+        ExtremalAvalanche.Run(["--dev", "id=0000_ava.h5"])
         ExtremalAvalanche.Run(["--dev", "id=0000_ava.h5"])
 
 

@@ -3,7 +3,6 @@ import inspect
 import pathlib
 import textwrap
 
-import enstat
 import GooseEPM as epm
 import GooseHDF5 as g5
 import h5py
@@ -12,12 +11,45 @@ import tqdm
 
 from . import Extremal
 from . import Preparation
+from . import tag
 from . import tools
 from ._version import version
 
 f_info = "EnsembleInfo.h5"
-m_name = "Extremal"
-m_exclude = ["Thermal", "AQS"]
+m_name = "ExtremalAvalanche"
+m_exclude = ["AQS", "Thermal"]
+
+
+def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
+    """
+    Upgrade data to the current version.
+
+    :param filename: Input filename.
+    :param temp_dir: Temporary directory in which any file may be created/overwritten.
+    :return: ``temp_file`` if the data is upgraded, ``None`` otherwise.
+    """
+    with h5py.File(filename) as src:
+        assert not any(x in src for x in m_exclude + Preparation._libname_pre_v2(m_exclude))
+        ver = Preparation.get_data_version(src)
+
+    if tag.greater_equal(ver, "2.0"):
+        return None
+
+    temp_file = temp_dir / "from_older.h5"
+    with h5py.File(filename) as src, h5py.File(temp_file, "w") as dst:
+        if "ExtremeValue" in src:
+            g5.copy(src, dst, "/ExtremeValue/Avalanche", "/ExtremalAvalanche")
+        g5.copy(src, dst, ["/param", "/restart"])
+        Preparation._copy_metadata_pre_v2(src, dst)
+
+    return temp_file
+
+
+def UpgradeData(cli_args=None):
+    r"""
+    Upgrade data to the current version.
+    """
+    Preparation.UpgradeData(cli_args, _upgrade_data)
 
 
 def BranchExtremal(cli_args=None):
@@ -95,9 +127,15 @@ def Run(cli_args=None):
 
         if m_name not in file:
             assert not any(m in file for m in m_exclude), "Wrong file type"
-            res = file.create_group(m_name).create_group("Avalanche")
+            res = file.create_group(m_name)
+            dt = 0
         else:
             res = file[m_name]
+            dt = res["idx"].size
+
+        # check data integrity
+        # todo: make independent of BranchExtremal
+        assert file[f"/meta/{m_name}/BranchExtremal"].attrs["t"] + dt == restart["t"][...]
 
         for _ in tqdm.tqdm(range(args.ninc // args.ncache), desc=str(args.file)):
             avalanche = epm.AvalancheWeakest()

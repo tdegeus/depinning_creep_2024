@@ -7,15 +7,19 @@ import tempfile
 import textwrap
 
 import GooseEPM as epm
+import GooseHDF5 as g5
 import h5py
 import numpy as np
 import shelephant
+import tqdm
 
+from . import storage
 from . import tag
 from . import tools
 from ._version import version
 
 data_version = "2.0"
+m_exclude = ["AQS", "Extremal", "ExtremalAvalanche", "Thermal"]
 
 
 def propagator(param: h5py.Group):
@@ -36,15 +40,71 @@ def get_data_version(file: h5py.File) -> str:
     return "0.0"
 
 
-def _upgrade_data(filename: pathlib.Path, temp_file: pathlib.Path) -> bool:
+def _libname_pre_v2(libs: list[str]) -> list[str]:
+    """
+    Rename library names from data_version == 2.0 to those used in data_version < 2.0.
+
+    :param libs: List of new library names.
+    :return: Corresponding list of old library names.
+    """
+    rename = {
+        "Preparation": "AthermalPreparation",
+        "AQS": "AthermalQuasiStatic",
+        "Extremal": "ExtremeValue",
+        "ExtremalAvalanche": "ExtremeValue/Avalanche",
+        "Thermal": "Thermal",
+    }
+    return [rename[i] for i in libs]
+
+
+def _copy_metadata_pre_v2(src: h5py.File, dst: h5py.File) -> None:
+    """
+    Copy and rename metadata from data_version < 2.0 to data_version == 2.0.
+
+    :param src: Source file.
+    :param dst: Destination file.
+    """
+    a = g5.getdatapaths(src, root="/meta")
+    b = []
+    for path in a:
+        _, meta, lib, func = path.split("/")
+        if lib == "AthermalPreparation":
+            b.append(g5.join(meta, "Preparation", func, root=True))
+        elif lib == "AthermalQuasiStatic":
+            b.append(g5.join(meta, "AQS", func, root=True))
+        elif path == "/meta/ExtremeValue/RunAvalanche":
+            b.append("/meta/ExtremalAvalanche/Run")
+        elif path == "/meta/ExtremeValue/BranchRun":
+            b.append("/meta/ExtremalAvalanche/BranchExtremal")
+        elif lib == "ExtremeValue":
+            b.append(g5.join(meta, "Extremal", func, root=True))
+        else:
+            b.append(path)
+    g5.copy(src, dst, a, b)
+    storage.dump_overwrite(dst, "/param/data_version", data_version)
+
+
+def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
     """
     Upgrade data to the current version.
 
     :param filename: Input filename.
-    :param temp_file: Temporary filename.
-    :return: True if the file was upgraded.
+    :param temp_dir: Temporary directory in which any file may be created/overwritten.
+    :return: ``temp_file`` if the data is upgraded, ``None`` otherwise.
     """
-    return False
+    with h5py.File(filename) as src:
+        assert not any(x in src for x in m_exclude + _libname_pre_v2(m_exclude))
+        ver = get_data_version(src)
+
+    if tag.greater_equal(ver, "2.0"):
+        return None
+
+    temp_file = temp_dir / "from_older.h5"
+    with h5py.File(filename) as src, h5py.File(temp_file, "w") as dst:
+        g5.copy(src, dst, ["/param", "/init"])
+        _copy_metadata_pre_v2(src, dst)
+
+    return temp_file
 
 
 def UpgradeData(cli_args=None, upgrade_function=_upgrade_data):
@@ -74,10 +134,12 @@ def UpgradeData(cli_args=None, upgrade_function=_upgrade_data):
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_dir = pathlib.Path(temp_dir)
-        temp_file = temp_dir / "new.h5"
-        for filename in args.files:
-            changed = upgrade_function(filename, temp_file)
-            if not changed:
+        pbar = tqdm.tqdm(args.files)
+        for filename in pbar:
+            pbar.set_description(str(filename))
+            pbar.refresh()
+            temp_file = upgrade_function(filename, temp_dir)
+            if temp_file is None:
                 continue
             if not args.no_bak:
                 bakname = filename.parent / (filename.name + ".bak")
@@ -167,6 +229,7 @@ def Generate(cli_args=None):
             param["alpha"] = args.alpha
             param["shape"] = args.shape
             param["interactions"] = args.interactions
+            param["data_version"] = data_version
 
             init = file.create_group("init")
             init.create_dataset("sigma", shape=args.shape, dtype=np.float64)

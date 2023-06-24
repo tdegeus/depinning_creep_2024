@@ -11,12 +11,13 @@ import numpy as np
 import tqdm
 
 from . import Preparation
+from . import tag
 from . import tools
 from ._version import version
 
 f_info = "EnsembleInfo.h5"
 m_name = "Extremal"
-m_exclude = ["Thermal", "AQS", "ExtremalAvalanche"]
+m_exclude = ["AQS", "ExtremalAvalanche", "Thermal"]
 
 
 class SystemStressControl(epm.SystemStressControl):
@@ -40,6 +41,38 @@ class SystemStressControl(epm.SystemStressControl):
         self.t = restart["t"][...]
         self.state = restart["state"][...]
         self.sigmabar = param["sigmabar"][...]
+
+
+def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
+    """
+    Upgrade data to the current version.
+
+    :param filename: Input filename.
+    :param temp_dir: Temporary directory in which any file may be created/overwritten.
+    :return: ``temp_file`` if the data is upgraded, ``None`` otherwise.
+    """
+    with h5py.File(filename) as src:
+        assert not any(x in src for x in m_exclude + Preparation._libname_pre_v2(m_exclude))
+        ver = Preparation.get_data_version(src)
+
+    if tag.greater_equal(ver, "2.0"):
+        return None
+
+    temp_file = temp_dir / "from_older.h5"
+    with h5py.File(filename) as src, h5py.File(temp_file, "w") as dst:
+        if "ExtremeValue" in src:
+            g5.copy(src, dst, "/ExtremeValue", "/Extremal")
+        g5.copy(src, dst, ["/param", "/restart"])
+        Preparation._copy_metadata_pre_v2(src, dst)
+
+    return temp_file
+
+
+def UpgradeData(cli_args=None):
+    r"""
+    Upgrade data to the current version.
+    """
+    Preparation.UpgradeData(cli_args, _upgrade_data)
 
 
 def BranchPreparation(cli_args=None):

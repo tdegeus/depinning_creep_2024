@@ -18,7 +18,7 @@ from .Preparation import data_version
 
 f_info = "EnsembleInfo.h5"
 m_name = "Thermal"
-m_exclude = ["Extremal", "AQS"]
+m_exclude = ["AQS", "Extremal", "ExtremalAvalanche"]
 
 
 class SystemThermalStressControl(epm.SystemThermalStressControl):
@@ -45,21 +45,60 @@ class SystemThermalStressControl(epm.SystemThermalStressControl):
         self.temperature = param["temperature"][...]
 
 
-def _upgrade_data(filename: pathlib.Path, temp_file: pathlib.Path) -> bool:
+def _upgrade_data_v1_to_v2(src: h5py.File, dst: h5py.File):
+    g5.copy(src, dst, ["/param", "/restart"])
+    Preparation._copy_metadata_pre_v2(src, dst)
+
+    if "Thermal" not in src:
+        return
+
+    A = src["/Thermal/A"][...]
+    idx = src["/Thermal/idx"][...]
+    n = A.shape[0] - idx.shape[0]
+    cp = g5.getdatapaths(src, root="/Thermal")
+    cp.remove("/Thermal/A")
+
+    if n == 0:
+        g5.copy(src, dst, cp)
+        root = dst["/Thermal"]
+        assert root["t"].maxshape[0] is None
+        return
+
+    cp.remove("/Thermal/idx")
+    g5.copy(src, dst, cp)
+    root = dst["/Thermal"]
+    assert root["t"].maxshape[0] is None
+
+    dset = root.create_dataset("idx", A.shape, maxshape=(None, A.shape[1]), dtype=idx.dtype)
+    dset[:n, :] = A[:n, :]
+    dset[n:, :] = idx
+    if A.shape[1] > 0:
+        assert np.all(np.equal(dset[0, :], epm.cumsum_n_unique(A[0, :])))
+    if idx.shape[1] > 0:
+        assert np.all(np.equal(dset[-1, :], idx[-1, :]))
+
+    dset = root.create_dataset("idx_ignore", (n,), maxshape=(None,), dtype=np.uint64)
+    dset[:] = np.arange(n, dtype=np.uint64)
+
+
+def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
     """
     Upgrade data to the current version.
 
     :param filename: Input filename.
-    :param temp_file: Temporary filename.
-    :return: True if the file was upgraded.
+    :param temp_dir: Temporary directory in which any file may be created/overwritten.
+    :return: ``temp_file`` if the data is upgraded, ``None`` otherwise.
     """
     with h5py.File(filename) as src:
-        assert "Thermal" in src, "Not a 'Thermal' file"
+        assert not any(x in src for x in m_exclude + Preparation._libname_pre_v2(m_exclude))
+        ver = Preparation.get_data_version(src)
 
-        if tag.greater_equal(Preparation.get_data_version(src), "1.0"):
-            return False
+    if tag.greater_equal(ver, "2.0"):
+        return None
 
-        with h5py.File(temp_file, "w") as dst:
+    if tag.less(ver, "1.0"):
+        temp_file = temp_dir / "from_1_0.h5"
+        with h5py.File(filename) as src, h5py.File(temp_file, "w") as dst:
             paths = g5.getdatapaths(src)
             paths.remove("/Thermal/S")
 
@@ -69,8 +108,15 @@ def _upgrade_data(filename: pathlib.Path, temp_file: pathlib.Path) -> bool:
 
             g5.copy(src, dst, paths)
             dst["/param/data_version"] = data_version
+        filename = temp_file
+        ver = "1.0"
 
-    return True
+    if tag.less(ver, "2.0"):
+        temp_file = temp_dir / "from_2_0.h5"
+        with h5py.File(filename) as src, h5py.File(temp_file, "w") as dst:
+            _upgrade_data_v1_to_v2(src, dst)
+
+    return temp_file
 
 
 def UpgradeData(cli_args=None):
@@ -256,7 +302,6 @@ def EnsembleInfo(cli_args=None):
                     xc = file["param"]["sigmay"][0] - file["param"]["sigmabar"][...]
                     alpha = file["param"]["alpha"][...]
                     temperature = file["param"]["temperature"][...]
-                    size = np.prod(file["param"]["shape"][...])
                     t0 = np.exp(xc**alpha / temperature)
                     output["/norm/xc"] = xc
                     output["/norm/t0"] = t0
