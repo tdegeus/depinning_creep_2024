@@ -206,8 +206,6 @@ def Run(cli_args=None):
                 avalanche.makeThermalFailureSteps(system, args.ninc)
                 with g5.ExtendableSlice(res, "idx", [args.ninc], np.uint64) as dset:
                     dset += avalanche.idx
-                with g5.ExtendableSlice(res, "A", [args.ninc], np.uint64) as dset:
-                    dset += avalanche.A
                 with g5.ExtendableSlice(res, "T", [args.ninc], np.float64) as dset:
                     dset += avalanche.T
 
@@ -258,6 +256,7 @@ def EnsembleInfo(cli_args=None):
                     xc = file["param"]["sigmay"][0] - file["param"]["sigmabar"][...]
                     alpha = file["param"]["alpha"][...]
                     temperature = file["param"]["temperature"][...]
+                    size = np.prod(file["param"]["shape"][...])
                     t0 = np.exp(xc**alpha / temperature)
                     output["/norm/xc"] = xc
                     output["/norm/t0"] = t0
@@ -273,7 +272,7 @@ def EnsembleInfo(cli_args=None):
                 hist += (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
                 for i in range(res["T"].shape[0]):
                     ti = res["T"][i, ...] / t0
-                    ai = res["A"][i, ...] / N
+                    ai = epm.cumsum_n_unique(res["idx"][i, ...]) / N
                     si = np.arange(ti.size) / N
                     S.add_sample(ti, si)
                     Ssq.add_sample(ti, si**2)
