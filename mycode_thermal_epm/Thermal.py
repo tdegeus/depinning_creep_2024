@@ -273,7 +273,7 @@ def EnsembleInfo(cli_args=None):
                 for i in range(res["T"].shape[0]):
                     ti = res["T"][i, ...] / t0
                     ai = epm.cumsum_n_unique(res["idx"][i, ...]) / N
-                    si = np.arange(ti.size) / N
+                    si = np.arange(1, ti.size + 1) / N
                     S.add_sample(ti, si)
                     Ssq.add_sample(ti, si**2)
                     A.add_sample(ti, ai)
