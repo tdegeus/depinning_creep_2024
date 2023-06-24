@@ -16,7 +16,7 @@ from ._version import version
 
 f_info = "EnsembleInfo.h5"
 m_name = "Extremal"
-m_exclude = ["Thermal", "AQS"]
+m_exclude = ["Thermal", "AQS", "ExtremalAvalanche"]
 
 
 class SystemStressControl(epm.SystemStressControl):
