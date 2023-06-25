@@ -147,6 +147,41 @@ def UpgradeData(cli_args=None, upgrade_function=_upgrade_data):
             shutil.copy2(temp_file, filename)
 
 
+def VerifyData(cli_args=None):
+    r"""
+    Check that the data is of the correct version.
+    Filenames of incorrect files are printed to stdout.
+    """
+
+    class MyFmt(
+        argparse.RawDescriptionHelpFormatter,
+        argparse.ArgumentDefaultsHelpFormatter,
+        argparse.MetavarTypeHelpFormatter,
+    ):
+        pass
+
+    funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
+
+    parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
+    parser.add_argument("files", type=pathlib.Path, nargs="*", help="File (overwritten)")
+
+    args = tools._parse(parser, cli_args)
+    assert all([f.is_file() for f in args.files]), "File not found"
+    assert args.develop or not tag.has_uncommitted(version), "Uncommitted changes"
+
+    ret = []
+    pbar = tqdm.tqdm(args.files)
+    for filename in pbar:
+        pbar.set_description(str(filename))
+        pbar.refresh()
+        with h5py.File(filename) as file:
+            if get_data_version(file) != data_version:
+                ret.append(filename)
+    print("\n".join(list(map(str, ret))))
+
+
 class SystemStressControl(epm.SystemStressControl):
     def __init__(self, file: h5py.File):
         param = file["param"]

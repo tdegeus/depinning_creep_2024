@@ -39,6 +39,7 @@ class MyTests(unittest.TestCase):
             ["--dev", "-n", 1, "--interactions", "monotonic-shortrange", "--shape", 10, 10, "."]
         )
         Preparation.Run(["--dev", "id=0000.h5"])
+        Preparation.VerifyData(["--dev", "id=0000.h5"])
         AQS.BranchPreparation(["--dev", "id=0000.h5", "id=0000_sim.h5", "--sigmay", 1.0, 0.3])
         AQS.BranchPreparation(["--dev", "id=0000.h5", "id=0000_res.h5", "--sigmay", 1.0, 0.3])
         AQS.Run(["--dev", "-n", 60, "id=0000_sim.h5"])
