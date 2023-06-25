@@ -7,6 +7,7 @@ import GooseEPM as epm
 import GooseHDF5 as g5
 import h5py
 import numpy as np
+import skimage
 import tqdm
 
 from . import Extremal
@@ -151,3 +152,58 @@ def Run(cli_args=None):
             restart["t"][...] = system.t
             restart["state"][...] = system.state
             file.flush()
+
+
+def EnsembleInfo(cli_args=None):
+    """
+    Basic interpretation of the ensemble.
+    """
+
+    class MyFmt(
+        argparse.RawDescriptionHelpFormatter,
+        argparse.ArgumentDefaultsHelpFormatter,
+        argparse.MetavarTypeHelpFormatter,
+    ):
+        pass
+
+    funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
+
+    parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
+    parser.add_argument("-v", "--version", action="version", version=version)
+    parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
+    parser.add_argument("-o", "--output", type=pathlib.Path, help="Output file", default=f_info)
+    parser.add_argument("-x", "--x0", type=float, action="append", default=[], help="x0")
+    parser.add_argument("files", nargs="*", type=pathlib.Path, help="Simulation files")
+
+    args = tools._parse(parser, cli_args)
+    assert all([f.exists() for f in args.files])
+    assert len(args.x0) > 0
+    tools._check_overwrite_file(args.output, args.force)
+
+    with h5py.File(args.output, "w") as output:
+        tools.create_check_meta(output, f"/meta/{m_name}/{funcname}", dev=args.develop)
+        for ifile, f in enumerate(tqdm.tqdm(args.files)):
+            with h5py.File(f) as file:
+                if ifile == 0:
+                    g5.copy(file, output, ["/param"])
+                    S = [[] for _ in args.x0]
+
+                if m_name not in file:
+                    assert not any(m in file for m in m_exclude), "Wrong file type"
+                    continue
+
+                res = file[m_name]
+                xmin = res["xmin"][...]
+
+                for i, x0 in enumerate(args.x0):
+                    label = skimage.measure.label(xmin >= x0)
+                    if xmin[0] >= x0 and xmin[-1] >= x0:
+                        label[label == label[-1]] = label[0]
+                    S[i] += np.bincount(label)[1:].tolist()
+
+        output["files"] = sorted([f.name for f in args.files])
+        output["x0"] = args.x0
+        for i, x0 in enumerate(args.x0):
+            output[f"/S/{i:d}"] = S[i]

@@ -10,6 +10,7 @@ dependencies = [
   "GooseHDF5 >=0.23.0",
   "h5py",
   "numpy",
+  "scikit-image",
   "tqdm"
 ]
 description = "Simple dataset management"
@@ -25,6 +26,7 @@ AQS_Plot = "mycode_thermal_epm.AQS:Plot"
 AQS_Run = "mycode_thermal_epm.AQS:Run"
 AQS_UpgradeData = "mycode_thermal_epm.AQS:UpgradeData"
 ExtremalAvalanche_BranchExtremal = "mycode_thermal_epm.ExtremalAvalanche:BranchExtremal"
+ExtremalAvalanche_EnsembleInfo = "mycode_thermal_epm.ExtremalAvalanche:EnsembleInfo"
 ExtremalAvalanche_Run = "mycode_thermal_epm.ExtremalAvalanche:Run"
 ExtremalAvalanche_UpgradeData = "mycode_thermal_epm.ExtremalAvalanche:UpgradeData"
 Extremal_BranchPreparation = "mycode_thermal_epm.Extremal:BranchPreparation"
