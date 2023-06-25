@@ -53,8 +53,12 @@ def _upgrade_data_v1_to_v2(src: h5py.File, dst: h5py.File):
         return
 
     A = src["/Thermal/A"][...]
-    idx = src["/Thermal/idx"][...]
-    n = A.shape[0] - idx.shape[0]
+    if "idx" in src["Thermal"]:
+        idx = src["/Thermal/idx"][...]
+        n = A.shape[0] - idx.shape[0]
+    else:
+        idx = None
+        n = 0
     cp = g5.getdatapaths(src, root="/Thermal")
     cp.remove("/Thermal/A")
 
@@ -62,6 +66,11 @@ def _upgrade_data_v1_to_v2(src: h5py.File, dst: h5py.File):
         g5.copy(src, dst, cp)
         root = dst["/Thermal"]
         assert root["t"].maxshape[0] is None
+        if idx is None:
+            g5.copy(src, dst, "/Thermal/A", "/Thermal/idx")
+            n = A.shape[0]
+            dset = root.create_dataset("idx_ignore", (n,), maxshape=(None,), dtype=np.uint64)
+            dset[:] = np.arange(n, dtype=np.uint64)
         return
 
     cp.remove("/Thermal/idx")
