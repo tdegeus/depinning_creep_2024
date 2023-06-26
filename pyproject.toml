@@ -6,11 +6,11 @@ authors = [{name = "Tom de Geus", email = "tom@geus.me"}]
 classifiers = ["License :: OSI Approved :: MIT License"]
 dependencies = [
   "enstat",
-  "GooseEPM >=0.5.3",
+  "GooseEPM >=0.5.4",
   "GooseHDF5 >=0.23.0",
   "h5py",
   "numpy",
-  "scikit-image",
+  "scipy",
   "tqdm"
 ]
 description = "Simple dataset management"

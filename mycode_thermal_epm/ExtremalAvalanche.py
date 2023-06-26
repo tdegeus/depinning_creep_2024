@@ -3,12 +3,13 @@ import inspect
 import pathlib
 import textwrap
 
+import enstat
 import GooseEPM as epm
 import GooseHDF5 as g5
 import h5py
 import numpy as np
-import skimage
 import tqdm
+from scipy import stats
 
 from . import Extremal
 from . import Preparation
@@ -174,12 +175,13 @@ def EnsembleInfo(cli_args=None):
     parser.add_argument("-v", "--version", action="version", version=version)
     parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
     parser.add_argument("-o", "--output", type=pathlib.Path, help="Output file", default=f_info)
-    parser.add_argument("-x", "--x0", type=float, action="append", default=[], help="x0")
+    parser.add_argument("--nbins", type=int, help="Number of bins", default=100)
+    parser.add_argument("--ndx", type=int, help="Number of x_c - x_0 to sample", default=100)
+    parser.add_argument("--xc", type=float, help="Value of x_c")
     parser.add_argument("files", nargs="*", type=pathlib.Path, help="Simulation files")
 
     args = tools._parse(parser, cli_args)
     assert all([f.exists() for f in args.files])
-    assert len(args.x0) > 0
     tools._check_overwrite_file(args.output, args.force)
 
     with h5py.File(args.output, "w") as output:
@@ -188,22 +190,64 @@ def EnsembleInfo(cli_args=None):
             with h5py.File(f) as file:
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
-                    S = [[] for _ in args.x0]
-
+                    size = np.prod(file["param"]["shape"][...])
+                    idx = []
+                    xmin = []
+                    smax = 0
                 if m_name not in file:
                     assert not any(m in file for m in m_exclude), "Wrong file type"
                     continue
-
                 res = file[m_name]
-                xmin = res["xmin"][...]
+                x = res["xmin"][...]
+                idx += res["idx"][...].tolist()
+                xmin += x.tolist()
+                smax = max(smax, x.size)
 
-                for i, x0 in enumerate(args.x0):
-                    label = skimage.measure.label(xmin >= x0)
-                    if xmin[0] >= x0 and xmin[-1] >= x0:
-                        label[label == label[-1]] = label[0]
-                    S[i] += np.bincount(label)[1:].tolist()
-
+        opts = dict(bins=args.nbins, mode="log", integer=True)
+        A_bin_edges = enstat.histogram.from_data(np.array([1, size]), **opts).bin_edges
+        S_bin_edges = enstat.histogram.from_data(np.array([1, smax]), **opts).bin_edges
+        A_bins = A_bin_edges.size - 1
+        S_bins = S_bin_edges.size - 1
+        idx = np.array(idx)
+        xmin = np.array(xmin)
+        x0_list = args.xc - np.logspace(-4, np.log10(args.xc), args.ndx)
+        output["x0"] = x0_list
         output["files"] = sorted([f.name for f in args.files])
-        output["x0"] = args.x0
-        for i, x0 in enumerate(args.x0):
-            output[f"/S/{i:d}"] = S[i]
+
+        for x0 in x0_list:
+            S, A = epm.segment_avalanche(xmin >= x0, idx)
+
+            if S.size == 0 or np.all(np.equal(A, size)):
+                s_x = np.NaN * np.ones(S_bins)
+                s_p = np.NaN * np.ones(S_bins)
+                s_m = np.NaN * np.ones(5)
+                a_x = np.NaN * np.ones(A_bins)
+                a_p = np.NaN * np.ones(A_bins)
+                a_m = np.NaN * np.ones(5)
+            else:
+                hist = enstat.histogram(bin_edges=S_bin_edges)
+                hist += S
+                s_x = hist.x
+                s_p = hist.p
+                m = np.mean(S)
+                s_m = np.array([m] + [stats.moment(S, moment=i) for i in range(2, 6)])
+
+                hist = enstat.histogram(bin_edges=A_bin_edges)
+                hist += A
+                a_x = hist.x
+                a_p = hist.p
+                m = np.mean(A)
+                a_m = np.array([m] + [stats.moment(A, moment=i) for i in range(2, 6)])
+
+            with g5.ExtendableSlice(output, "/S/pdf/x", [S_bins], np.float64) as dset:
+                dset += s_x
+            with g5.ExtendableSlice(output, "/S/pdf/p", [S_bins], np.float64) as dset:
+                dset += s_p
+            with g5.ExtendableSlice(output, "/S/moments", [5], np.float64) as dset:
+                dset += s_m
+            with g5.ExtendableSlice(output, "/A/pdf/x", [A_bins], np.float64) as dset:
+                dset += a_x
+            with g5.ExtendableSlice(output, "/A/pdf/p", [A_bins], np.float64) as dset:
+                dset += a_p
+            with g5.ExtendableSlice(output, "/A/moments", [5], np.float64) as dset:
+                dset += a_m

@@ -43,7 +43,7 @@ class MyTests(unittest.TestCase):
         ExtremalAvalanche.BranchExtremal(["--dev", "id=0000_sim.h5", "id=0000_ava.h5"])
         ExtremalAvalanche.Run(["--dev", "id=0000_ava.h5"])
         ExtremalAvalanche.Run(["--dev", "id=0000_ava.h5"])
-        ExtremalAvalanche.EnsembleInfo(["--dev", "id=0000_ava.h5", "-x", 0.4, "-x", 0.5])
+        ExtremalAvalanche.EnsembleInfo(["--dev", "id=0000_ava.h5", "--xc", 0.5])
 
 
 if __name__ == "__main__":

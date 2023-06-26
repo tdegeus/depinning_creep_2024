@@ -16,7 +16,7 @@ dependencies:
 - pre-commit
 - python
 - python-cppcolormap
-- scikit-image
+- scipy
 - setuptools_scm
 - shelephant
 - tqdm
