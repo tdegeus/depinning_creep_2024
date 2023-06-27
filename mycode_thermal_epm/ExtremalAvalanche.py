@@ -22,6 +22,13 @@ m_name = "ExtremalAvalanche"
 m_exclude = ["AQS", "Thermal"]
 
 
+def _upgrade_data_v1_to_v2(src: h5py.File, dst: h5py.File):
+    if "ExtremeValue" in src:
+        g5.copy(src, dst, "/ExtremeValue/Avalanche", "/ExtremalAvalanche")
+    g5.copy(src, dst, ["/param", "/restart"])
+    Preparation._copy_metadata_pre_v2(src, dst)
+
+
 def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
     """
     Upgrade data to the current version.
@@ -37,12 +44,10 @@ def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
     if tag.greater_equal(ver, "2.0"):
         return None
 
-    temp_file = temp_dir / "from_older.h5"
-    with h5py.File(filename) as src, h5py.File(temp_file, "w") as dst:
-        if "ExtremeValue" in src:
-            g5.copy(src, dst, "/ExtremeValue/Avalanche", "/ExtremalAvalanche")
-        g5.copy(src, dst, ["/param", "/restart"])
-        Preparation._copy_metadata_pre_v2(src, dst)
+    if tag.less(ver, "2.0"):
+        temp_file = temp_dir / "from_2_0.h5"
+        with h5py.File(filename) as src, h5py.File(temp_file, "w") as dst:
+            _upgrade_data_v1_to_v2(src, dst)
 
     return temp_file
 
@@ -140,12 +145,12 @@ def Run(cli_args=None):
         assert file[f"/meta/{m_name}/BranchExtremal"].attrs["t"] + dt == restart["t"][...]
 
         for _ in tqdm.tqdm(range(args.ninc // args.ncache), desc=str(args.file)):
-            avalanche = epm.Avalanche()
-            avalanche.makeWeakestFailureSteps(system, args.ncache, allow_stable=True)
+            measurement = epm.Avalanche()
+            measurement.makeWeakestFailureSteps(system, args.ncache, allow_stable=True)
             with g5.ExtendableList(res, "idx", np.uint64) as dset:
-                dset += avalanche.idx
+                dset += measurement.idx
             with g5.ExtendableList(res, "xmin", np.float64) as dset:
-                dset += avalanche.x
+                dset += measurement.x
 
             restart["epsp"][...] = system.epsp
             restart["sigma"][...] = system.sigma
