@@ -291,6 +291,8 @@ def EnsembleInfo(cli_args=None):
     parser.add_argument("-v", "--version", action="version", version=version)
     parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
     parser.add_argument("-o", "--output", type=pathlib.Path, help="Output file", default=f_info)
+    parser.add_argument("--nbin-x", type=int, default=2000, help="#bins for P(x)")
+    parser.add_argument("--nbin-t", type=int, default=2000, help="#bins for tau")
     parser.add_argument("files", nargs="*", type=pathlib.Path, help="Simulation files")
 
     args = tools._parse(parser, cli_args)
@@ -299,32 +301,40 @@ def EnsembleInfo(cli_args=None):
 
     with h5py.File(args.output, "w") as output:
         tools.create_check_meta(output, f"/meta/{m_name}/{funcname}", dev=args.develop)
-        for ifile, f in enumerate(tqdm.tqdm(args.files)):
+
+        tmin = np.inf
+        tmax = 0
+        for f in tqdm.tqdm(args.files):
             with h5py.File(f) as file:
                 assert m_name in file, "Wrong file type"
                 assert not any(m in file for m in m_exclude), "Wrong file type"
                 res = file[m_name]
                 ava = res["avalanches"]
+                for i in range(ava["t"].shape[0]):
+                    tmin = min(tmin, ava["t"][i, 0] - res["t"][i])
+                    tmax = max(tmax, ava["t"][i, -1] - res["t"][i])
+
+        for ifile, f in enumerate(tqdm.tqdm(args.files)):
+            with h5py.File(f) as file:
+                res = file[m_name]
+                ava = res["avalanches"]
 
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
-                    xc = file["param"]["sigmay"][0] - file["param"]["sigmabar"][...]
-                    alpha = file["param"]["alpha"][...]
-                    temperature = file["param"]["temperature"][...]
-                    t0 = np.exp(xc**alpha / temperature)
-                    output["/norm/xc"] = xc
-                    output["/norm/t0"] = t0
-                    hist = enstat.histogram(bin_edges=np.linspace(0, 3, 2001), bound_error="ignore")
-                    tmax = res["T"][-1, -1] / t0
-                    bin_edges = np.linspace(0, 2 * tmax, 2001)  # todo: logspace, larger?
+                    pdfx = enstat.histogram(
+                        bin_edges=np.linspace(0, 3, args.nbin_x), bound_error="ignore"
+                    )
+                    bin_edges = enstat.histogram.from_data(
+                        data=np.array([tmin, tmax]), bins=args.nbin_t, mode="log"
+                    ).bin_edges
                     S = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
                     Ssq = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
                     A = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
                     Asq = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
                     N = np.prod(file["param"]["shape"][...])
 
-                hist += (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
-                for i in range(res["T"].shape[0]):
+                pdfx += (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
+                for i in range(res["t"].shape[0]):
                     ti = ava["t"][i, ...] - res["t"][i]
                     ai = epm.cumsum_n_unique(ava["idx"][i, ...]) / N
                     si = np.arange(1, ti.size + 1) / N
@@ -336,9 +346,9 @@ def EnsembleInfo(cli_args=None):
         output["files"] = sorted([f.name for f in args.files])
 
         res = output.create_group("hist_x")
-        res["x"] = hist.x
-        res["p"] = hist.p
-        res["count"] = hist.count
+        res["x"] = pdfx.x
+        res["p"] = pdfx.p
+        res["count"] = pdfx.count
 
         for name, variable in zip(
             ["S", "Ssq", "A", "Asq", "t"], [S["y"], Ssq["y"], A["y"], Asq["y"], S["x"]]
