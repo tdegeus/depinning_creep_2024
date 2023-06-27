@@ -160,7 +160,7 @@ def Run(cli_args=None):
             file.flush()
 
 
-def EnsembleInfo(cli_args=None):
+def EnsembleInfo(cli_args=None, myname=m_name):
     """
     Basic interpretation of the ensemble.
     """
@@ -190,7 +190,7 @@ def EnsembleInfo(cli_args=None):
     tools._check_overwrite_file(args.output, args.force)
 
     with h5py.File(args.output, "w") as output:
-        tools.create_check_meta(output, f"/meta/{m_name}/{funcname}", dev=args.develop)
+        tools.create_check_meta(output, f"/meta/{myname}/{funcname}", dev=args.develop)
         for ifile, f in enumerate(tqdm.tqdm(args.files)):
             with h5py.File(f) as file:
                 if ifile == 0:
@@ -199,10 +199,10 @@ def EnsembleInfo(cli_args=None):
                     idx = []
                     xmin = []
                     smax = 0
-                if m_name not in file:
+                if myname not in file:
                     assert not any(m in file for m in m_exclude), "Wrong file type"
                     continue
-                res = file[m_name]
+                res = file[myname]
                 x = res["xmin"][...]
                 idx += res["idx"][...].tolist()
                 xmin += x.tolist()
