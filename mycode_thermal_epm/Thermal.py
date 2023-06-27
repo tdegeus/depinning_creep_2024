@@ -317,15 +317,15 @@ def ComputeMissing(cli_args=None):
             system.t = snapshot["t"][i]
             system.state = snapshot["state"][i]
 
-            avalanche = epm.Avalanche()
-            avalanche.makeThermalFailureSteps(system, ninc)
-            assert np.allclose(avalanche.t, avalanche["t"][i, :])
+            measurement = epm.Avalanche()
+            measurement.makeThermalFailureSteps(system, ninc)
+            assert np.allclose(measurement.t, avalanche["t"][i, :])
             if i not in ignore_idx:
-                assert np.all(np.equal(avalanche.idx, avalanche["idx"][i, :]))
+                assert np.all(np.equal(measurement.idx, avalanche["idx"][i, :]))
             else:
-                avalanche["idx"][i, :] = avalanche.idx
+                avalanche["idx"][i, :] = measurement.idx
                 avalanche["idx_ignore"][np.argmax(ignore_idx == i)] = m_dummy_int
-            avalanche["x"][i, :] = avalanche.x
+            avalanche["x"][i, :] = measurement.x
             avalanche["x_ignore"][j] = m_dummy_int
 
             restart["epsp"][i, ...] = system.epsp
