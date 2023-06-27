@@ -6,7 +6,7 @@ authors = [{name = "Tom de Geus", email = "tom@geus.me"}]
 classifiers = ["License :: OSI Approved :: MIT License"]
 dependencies = [
   "enstat",
-  "GooseEPM >=0.6.0",
+  "GooseEPM >=0.5.0",
   "GooseHDF5 >=0.23.0",
   "h5py",
   "numpy",
@@ -39,6 +39,7 @@ Preparation_Run = "mycode_thermal_epm.Preparation:Run"
 Preparation_UpgradeData = "mycode_thermal_epm.Preparation:UpgradeData"
 Preparation_VerifyData = "mycode_thermal_epm.Preparation:VerifyData"
 Thermal_BranchPreparation = "mycode_thermal_epm.Thermal:BranchPreparation"
+Thermal_ComputeMissing = "mycode_thermal_epm.Thermal:ComputeMissing"
 Thermal_EnsembleInfo = "mycode_thermal_epm.Thermal:EnsembleInfo"
 Thermal_Plot = "mycode_thermal_epm.Thermal:Plot"
 Thermal_Run = "mycode_thermal_epm.Thermal:Run"
