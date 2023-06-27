@@ -18,7 +18,7 @@ from . import tag
 from . import tools
 from ._version import version
 
-data_version = "2.0"
+data_version = "3.0"
 m_exclude = ["AQS", "Extremal", "ExtremalAvalanche", "Thermal"]
 
 

@@ -140,12 +140,12 @@ def Run(cli_args=None):
         assert file[f"/meta/{m_name}/BranchExtremal"].attrs["t"] + dt == restart["t"][...]
 
         for _ in tqdm.tqdm(range(args.ninc // args.ncache), desc=str(args.file)):
-            avalanche = epm.AvalancheWeakest()
-            avalanche.makeWeakestFailureSteps(system, args.ncache)
+            avalanche = epm.Avalanche()
+            avalanche.makeWeakestFailureSteps(system, args.ncache, allow_stable=True)
             with g5.ExtendableList(res, "idx", np.uint64) as dset:
                 dset += avalanche.idx
             with g5.ExtendableList(res, "xmin", np.float64) as dset:
-                dset += avalanche.xmin
+                dset += avalanche.x
 
             restart["epsp"][...] = system.epsp
             restart["sigma"][...] = system.sigma

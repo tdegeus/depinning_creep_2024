@@ -212,7 +212,6 @@ def Run(cli_args=None):
     parser.add_argument("--interval", type=int, default=100, help="Measure every #events")
     parser.add_argument("-n", "--measurements", type=int, default=100, help="Total #measurements")
     parser.add_argument("--ninc", type=int, help="#increments to measure (default: ``20 N``)")
-    parser.add_argument("--flow", action="store_true", help="Flow only (min. out., no avalanches)")
     parser.add_argument("file", type=pathlib.Path, help="Input/output file")
 
     args = tools._parse(parser, cli_args)
@@ -230,8 +229,10 @@ def Run(cli_args=None):
         if m_name not in file:
             assert not any(m in file for m in m_exclude), "Wrong file type"
             res = file.create_group(m_name)
+            ava = res.create_group("avalanches")
         else:
             res = file[m_name]
+            ava = res["avalanches"]
 
         for _ in tqdm.tqdm(range(args.measurements), desc=str(args.file)):
             nfails = system.nfails.copy()
@@ -241,28 +242,26 @@ def Run(cli_args=None):
                     break
                 system.makeThermalFailureSteps(system.size)
 
-            with g5.ExtendableList(res, "mean_epsp", np.float64) as dset:
-                dset.append(np.mean(system.epsp))
+            with g5.ExtendableSlice(res, "epsp", system.shape, np.float64) as dset:
+                dset += system.epsp
+            with g5.ExtendableSlice(res, "sigma", system.shape, np.float64) as dset:
+                dset += system.sigma
+            with g5.ExtendableSlice(res, "sigmay", system.shape, np.float64) as dset:
+                dset += system.sigmay
+            with g5.ExtendableList(res, "state", np.uint64) as dset:
+                dset.append(system.state)
             with g5.ExtendableList(res, "t", np.float64) as dset:
                 dset.append(system.t)
 
-            if not args.flow:
-                with g5.ExtendableSlice(res, "epsp", system.shape, np.float64) as dset:
-                    dset += system.epsp
-                with g5.ExtendableSlice(res, "sigma", system.shape, np.float64) as dset:
-                    dset += system.sigma
-                with g5.ExtendableSlice(res, "sigmay", system.shape, np.float64) as dset:
-                    dset += system.sigmay
-                with g5.ExtendableList(res, "state", np.uint64) as dset:
-                    dset.append(system.state)
-
-            if args.ninc > 0 and not args.flow:
+            if args.ninc > 0:
                 avalanche = epm.Avalanche()
                 avalanche.makeThermalFailureSteps(system, args.ninc)
-                with g5.ExtendableSlice(res, "idx", [args.ninc], np.uint64) as dset:
+                with g5.ExtendableSlice(ava, "idx", [args.ninc], np.uint64) as dset:
                     dset += avalanche.idx
-                with g5.ExtendableSlice(res, "T", [args.ninc], np.float64) as dset:
-                    dset += avalanche.T
+                with g5.ExtendableSlice(ava, "x", [args.ninc], np.float64) as dset:
+                    dset += avalanche.x
+                with g5.ExtendableSlice(ava, "t", [args.ninc], np.float64) as dset:
+                    dset += avalanche.t
 
             restart["epsp"][...] = system.epsp
             restart["sigma"][...] = system.sigma
@@ -305,6 +304,7 @@ def EnsembleInfo(cli_args=None):
                 assert m_name in file, "Wrong file type"
                 assert not any(m in file for m in m_exclude), "Wrong file type"
                 res = file[m_name]
+                ava = res["avalanches"]
 
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
@@ -325,8 +325,8 @@ def EnsembleInfo(cli_args=None):
 
                 hist += (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
                 for i in range(res["T"].shape[0]):
-                    ti = res["T"][i, ...] / t0
-                    ai = epm.cumsum_n_unique(res["idx"][i, ...]) / N
+                    ti = ava["t"][i, ...] - res["t"][i]
+                    ai = epm.cumsum_n_unique(ava["idx"][i, ...]) / N
                     si = np.arange(1, ti.size + 1) / N
                     S.add_sample(ti, si)
                     Ssq.add_sample(ti, si**2)

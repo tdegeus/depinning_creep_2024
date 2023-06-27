@@ -169,17 +169,16 @@ def Run(cli_args=None):
                     break
                 system.makeWeakestFailureSteps(system.size, allow_stable=True)
 
-            if True:
-                with g5.ExtendableSlice(res, "epsp", system.shape, np.float64) as dset:
-                    dset += system.epsp
-                with g5.ExtendableSlice(res, "sigma", system.shape, np.float64) as dset:
-                    dset += system.sigma
-                with g5.ExtendableSlice(res, "sigmay", system.shape, np.float64) as dset:
-                    dset += system.sigmay
-                with g5.ExtendableList(res, "state", np.uint64) as dset:
-                    dset.append(system.state)
-                with g5.ExtendableList(res, "t", np.float64) as dset:
-                    dset.append(system.t)
+            with g5.ExtendableSlice(res, "epsp", system.shape, np.float64) as dset:
+                dset += system.epsp
+            with g5.ExtendableSlice(res, "sigma", system.shape, np.float64) as dset:
+                dset += system.sigma
+            with g5.ExtendableSlice(res, "sigmay", system.shape, np.float64) as dset:
+                dset += system.sigmay
+            with g5.ExtendableList(res, "state", np.uint64) as dset:
+                dset.append(system.state)
+            with g5.ExtendableList(res, "t", np.float64) as dset:
+                dset.append(system.t)
 
             restart["epsp"][...] = system.epsp
             restart["sigma"][...] = system.sigma
