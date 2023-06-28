@@ -362,7 +362,7 @@ def EnsembleInfo(cli_args=None):
 
         output["chi4_S"] = N * (binned["Ssq"].mean() - binned["S"].mean() ** 2)
         output["chi4_A"] = N * (binned["Asq"].mean() - binned["A"].mean() ** 2)
-        output["t"] = binned["S"].mean()
+        output["t"] = binned["t"].mean()
 
 
 def Plot(cli_args=None):
