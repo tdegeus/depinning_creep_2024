@@ -335,7 +335,7 @@ def EnsembleInfo(cli_args=None):
                         bin_edges=np.linspace(0, 3, args.nbin_x), bound_error="ignore"
                     )
                     bin_edges = enstat.histogram.from_data(
-                        data=np.array([tmin, tmax]), bins=args.nbin_t, mode="log"
+                        data=np.array([max(tmin, 1e-9), tmax]), bins=args.nbin_t, mode="log"
                     ).bin_edges
                     S = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
                     Ssq = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
