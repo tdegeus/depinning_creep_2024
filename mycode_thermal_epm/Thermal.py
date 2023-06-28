@@ -303,7 +303,7 @@ def EnsembleInfo(cli_args=None):
     parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
     parser.add_argument("-o", "--output", type=pathlib.Path, help="Output file", default=f_info)
     parser.add_argument("--nbin-x", type=int, default=2000, help="#bins for P(x)")
-    parser.add_argument("--nbin-t", type=int, default=2000, help="#bins for tau")
+    parser.add_argument("--nbin-t", type=int, default=10000, help="#bins for tau")
     parser.add_argument("files", nargs="*", type=pathlib.Path, help="Simulation files")
 
     args = tools._parse(parser, cli_args)
@@ -337,10 +337,9 @@ def EnsembleInfo(cli_args=None):
                     bin_edges = enstat.histogram.from_data(
                         data=np.array([max(tmin, 1e-9), tmax]), bins=args.nbin_t, mode="log"
                     ).bin_edges
-                    S = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
-                    Ssq = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
-                    A = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
-                    Asq = enstat.binned(bin_edges, names=["x", "y"], bound_error="ignore")
+                    binned = enstat.binned(
+                        bin_edges, names=["t", "S", "Ssq", "A", "Asq"], bound_error="ignore"
+                    )
                     N = np.prod(file["param"]["shape"][...])
 
                 pdfx += (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
@@ -348,10 +347,7 @@ def EnsembleInfo(cli_args=None):
                     ti = res["T"][i, ...]
                     ai = epm.cumsum_n_unique(res["idx"][i, ...]) / N
                     si = np.arange(1, ti.size + 1) / N
-                    S.add_sample(ti, si)
-                    Ssq.add_sample(ti, si**2)
-                    A.add_sample(ti, ai)
-                    Asq.add_sample(ti, ai**2)
+                    binned.add_sample(ti, si, si**2, ai, ai**2)
 
         output["files"] = sorted([f.name for f in args.files])
 
@@ -360,15 +356,13 @@ def EnsembleInfo(cli_args=None):
         res["p"] = pdfx.p
         res["count"] = pdfx.count
 
-        for name, variable in zip(
-            ["S", "Ssq", "A", "Asq", "t"], [S["y"], Ssq["y"], A["y"], Asq["y"], S["x"]]
-        ):
-            for key, value in variable:
+        for name in binned.names:
+            for key, value in binned[name]:
                 output[f"/restore/{name}/{key}"] = value
 
-        output["chi4_S"] = N * (Ssq["y"].mean() - S["y"].mean() ** 2)
-        output["chi4_A"] = N * (Asq["y"].mean() - A["y"].mean() ** 2)
-        output["t"] = S["x"].mean()
+        output["chi4_S"] = N * (binned["Ssq"].mean() - binned["S"].mean() ** 2)
+        output["chi4_A"] = N * (binned["Asq"].mean() - binned["A"].mean() ** 2)
+        output["t"] = binned["S"].mean()
 
 
 def Plot(cli_args=None):
