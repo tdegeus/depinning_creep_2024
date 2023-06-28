@@ -312,6 +312,7 @@ def EnsembleInfo(cli_args=None):
 
     with h5py.File(args.output, "w") as output:
         tools.create_check_meta(output, f"/meta/{m_name}/{funcname}", dev=args.develop)
+        output["files"] = sorted([f.name for f in args.files])
 
         tmin = np.inf
         tmax = 0
@@ -334,11 +335,12 @@ def EnsembleInfo(cli_args=None):
                     pdfx = enstat.histogram(
                         bin_edges=np.linspace(0, 3, args.nbin_x), bound_error="ignore"
                     )
-                    bin_edges = enstat.histogram.from_data(
-                        data=np.array([max(tmin, 1e-9), tmax]), bins=args.nbin_t, mode="log"
-                    ).bin_edges
                     binned = enstat.binned(
-                        bin_edges, names=["t", "S", "Ssq", "A", "Asq"], bound_error="ignore"
+                        bin_edges=enstat.histogram.from_data(
+                            data=np.array([max(tmin, 1e-9), tmax]), bins=args.nbin_t, mode="log"
+                        ).bin_edges,
+                        names=["t", "S", "Ssq", "A", "Asq"],
+                        bound_error="ignore",
                     )
                     N = np.prod(file["param"]["shape"][...])
 
@@ -349,20 +351,22 @@ def EnsembleInfo(cli_args=None):
                     si = np.arange(1, ti.size + 1) / N
                     binned.add_sample(ti, si, si**2, ai, ai**2)
 
-        output["files"] = sorted([f.name for f in args.files])
+            storage.dump_overwrite(output, "/hist_x/x", pdfx.x)
+            storage.dump_overwrite(output, "/hist_x/p", pdfx.p)
+            storage.dump_overwrite(output, "/hist_x/count", pdfx.count)
+            storage.dump_overwrite(
+                output, "chi4_S", N * (binned["Ssq"].mean() - binned["S"].mean() ** 2)
+            )
+            storage.dump_overwrite(
+                output, "chi4_A", N * (binned["Asq"].mean() - binned["A"].mean() ** 2)
+            )
+            storage.dump_overwrite(output, "t", binned["t"].mean())
 
-        res = output.create_group("hist_x")
-        res["x"] = pdfx.x
-        res["p"] = pdfx.p
-        res["count"] = pdfx.count
+            for name in binned.names:
+                for key, value in binned[name]:
+                    storage.dump_overwrite(output, f"/restore/{name}/{key}", value)
 
-        for name in binned.names:
-            for key, value in binned[name]:
-                output[f"/restore/{name}/{key}"] = value
-
-        output["chi4_S"] = N * (binned["Ssq"].mean() - binned["S"].mean() ** 2)
-        output["chi4_A"] = N * (binned["Asq"].mean() - binned["A"].mean() ** 2)
-        output["t"] = binned["t"].mean()
+            output.flush()
 
 
 def Plot(cli_args=None):
