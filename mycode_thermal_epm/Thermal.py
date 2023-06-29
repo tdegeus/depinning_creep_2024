@@ -349,6 +349,8 @@ def EnsembleInfo(cli_args=None):
                     ti = res["T"][i, ...]
                     ai = epm.cumsum_n_unique(res["idx"][i, ...]) / N
                     si = np.arange(1, ti.size + 1) / N
+                    if np.all(ti == 0):  # happens for very small temperatures
+                        continue
                     binned.add_sample(ti, si, si**2, ai, ai**2)
 
             storage.dump_overwrite(output, "/hist_x/x", pdfx.x)
