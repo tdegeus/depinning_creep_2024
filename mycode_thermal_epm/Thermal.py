@@ -405,14 +405,16 @@ def EnsembleHeightHeight(cli_args=None, myname: str = m_name):
 
         for ifile, f in enumerate(tqdm.tqdm(args.files)):
             with h5py.File(f) as file:
-                res = file[myname]
-
                 if ifile == 0:
                     w = int(file["param"]["shape"][0] // 2 - 1)
                     h = int(file["param"]["shape"][1] // 2 - 1)
                     hor = eye.Ensemble([w], variance=True, periodic=True)
                     ver = eye.Ensemble([h], variance=True, periodic=True)
 
+                if f"/{myname}/epsp" not in file:
+                    continue
+
+                res = file[myname]
                 for i in range(res["epsp"].shape[0]):
                     e = res["epsp"][i, ...]
                     hor.heightheight(e[0, :])
