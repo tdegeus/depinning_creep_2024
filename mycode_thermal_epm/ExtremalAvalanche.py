@@ -203,24 +203,29 @@ def EnsembleInfo(cli_args=None, myname=m_name):
                     assert not any(m in file for m in m_exclude), "Wrong file type"
                     continue
                 res = file[myname]
-                x = res["xmin"][...]
-                idx += res["idx"][...].tolist()
-                xmin += x.tolist()
-                smax = max(smax, x.size)
+                idx += [res["idx"][...]]
+                xmin += [res["xmin"][...]]
+                smax = max(smax, res["xmin"].size)
 
         opts = dict(bins=args.nbins, mode="log", integer=True)
         A_bin_edges = enstat.histogram.from_data(np.array([1, size]), **opts).bin_edges
         S_bin_edges = enstat.histogram.from_data(np.array([1, smax]), **opts).bin_edges
         A_bins = A_bin_edges.size - 1
         S_bins = S_bin_edges.size - 1
-        idx = np.array(idx)
-        xmin = np.array(xmin)
         x0_list = args.xc - np.logspace(-4, np.log10(args.xc), args.ndx)
         output["x0"] = x0_list
         output["files"] = sorted([f.name for f in args.files])
 
-        for x0 in x0_list:
-            S, A = epm.segment_avalanche(xmin >= x0, idx)
+        for x0 in tqdm.tqdm(x0_list):
+            S = []
+            A = []
+            for x, i in zip(xmin, idx):
+                si, ai = epm.segment_avalanche(x0 >= x, i)
+                S += si.tolist()
+                A += ai.tolist()
+
+            S = np.array(S)
+            A = np.array(A)
 
             if S.size == 0 or np.all(np.equal(A, size)):
                 s_x = np.NaN * np.ones(S_bins)
