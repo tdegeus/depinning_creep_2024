@@ -12,6 +12,7 @@ import tqdm
 
 from . import Preparation
 from . import tag
+from . import Thermal
 from . import tools
 from ._version import version
 
@@ -235,6 +236,13 @@ def EnsembleInfo(cli_args=None):
         res["x"] = hist.x
         res["p"] = hist.p
         res["count"] = hist.count
+
+
+def EnsembleHeightHeight(cli_args=None):
+    """
+    Get the height-height correlation function.
+    """
+    return Thermal.EnsembleHeightHeight(cli_args, m_name)
 
 
 def Plot(cli_args=None):

@@ -5,6 +5,7 @@ import textwrap
 
 import enstat
 import GooseEPM as epm
+import GooseEYE as eye
 import GooseHDF5 as g5
 import h5py
 import numpy as np
@@ -18,6 +19,7 @@ from ._version import version
 from .Preparation import data_version
 
 f_info = "EnsembleInfo.h5"
+f_height = "EnsembleHeightHeight.h5"
 m_name = "Thermal"
 m_avalanche = "Avalanche"
 m_exclude = ["AQS", "Extremal", "ExtremalAvalanche"]
@@ -368,6 +370,65 @@ def EnsembleInfo(cli_args=None):
                 for key, value in binned[name]:
                     storage.dump_overwrite(output, f"/restore/{name}/{key}", value)
 
+            output.flush()
+
+
+def EnsembleHeightHeight(cli_args=None, myname: str = m_name):
+    """
+    Get the height-height correlation function.
+    """
+
+    class MyFmt(
+        argparse.RawDescriptionHelpFormatter,
+        argparse.ArgumentDefaultsHelpFormatter,
+        argparse.MetavarTypeHelpFormatter,
+    ):
+        pass
+
+    funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
+
+    parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
+    parser.add_argument("-v", "--version", action="version", version=version)
+    parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
+    parser.add_argument("-o", "--output", type=pathlib.Path, help="Output file", default=f_height)
+    parser.add_argument("files", nargs="*", type=pathlib.Path, help="Simulation files")
+
+    args = tools._parse(parser, cli_args)
+    assert all([f.exists() for f in args.files])
+    tools._check_overwrite_file(args.output, args.force)
+
+    with h5py.File(args.output, "w") as output:
+        tools.create_check_meta(output, f"/meta/{m_name}/{funcname}", dev=args.develop)
+        output["files"] = sorted([f.name for f in args.files])
+
+        for ifile, f in enumerate(tqdm.tqdm(args.files)):
+            with h5py.File(f) as file:
+                res = file[myname]
+
+                if ifile == 0:
+                    w = int(file["param"]["shape"][0] // 2 - 1)
+                    h = int(file["param"]["shape"][1] // 2 - 1)
+                    hor = eye.Ensemble([w], variance=True, periodic=True)
+                    ver = eye.Ensemble([h], variance=True, periodic=True)
+
+                for i in range(res["epsp"].shape[0]):
+                    e = res["epsp"][i, ...]
+                    hor.heightheight(e[0, :])
+                    ver.heightheight(e[:, 0])
+
+            r = hor.distance(0).astype(int)
+            keep = r >= 0
+            storage.dump_overwrite(output, "/horizontal/mean", hor.result()[keep])
+            storage.dump_overwrite(output, "/horizontal/variance", hor.variance()[keep])
+            storage.dump_overwrite(output, "/horizontal/distance", r[keep])
+
+            r = ver.distance(0).astype(int)
+            keep = r >= 0
+            storage.dump_overwrite(output, "/vertical/mean", ver.result()[keep])
+            storage.dump_overwrite(output, "/vertical/variance", ver.variance()[keep])
+            storage.dump_overwrite(output, "/vertical/distance", r[keep])
             output.flush()
 
 

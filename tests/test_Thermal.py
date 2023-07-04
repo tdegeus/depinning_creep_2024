@@ -54,6 +54,7 @@ class MyTests(unittest.TestCase):
             self.assertTrue(np.allclose(a[key][...], b[key][...]))
 
         Thermal.EnsembleInfo(["--dev", "id=0000_sim.h5"])
+        Thermal.EnsembleHeightHeight(["--dev", "id=0000_sim.h5"])
 
 
 if __name__ == "__main__":

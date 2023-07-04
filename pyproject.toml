@@ -6,6 +6,7 @@ authors = [{name = "Tom de Geus", email = "tom@geus.me"}]
 classifiers = ["License :: OSI Approved :: MIT License"]
 dependencies = [
   "enstat",
+  "GooseEYE >=0.6.3",
   "GooseEPM >=0.5.0",
   "GooseHDF5 >=0.23.0",
   "h5py",
@@ -30,6 +31,7 @@ ExtremalAvalanche_EnsembleInfo = "mycode_thermal_epm.ExtremalAvalanche:EnsembleI
 ExtremalAvalanche_Run = "mycode_thermal_epm.ExtremalAvalanche:Run"
 ExtremalAvalanche_UpgradeData = "mycode_thermal_epm.ExtremalAvalanche:UpgradeData"
 Extremal_BranchPreparation = "mycode_thermal_epm.Extremal:BranchPreparation"
+Extremal_EnsembleHeightHeight = "mycode_thermal_epm.Extremal:EnsembleHeightHeight"
 Extremal_EnsembleInfo = "mycode_thermal_epm.Extremal:EnsembleInfo"
 Extremal_Plot = "mycode_thermal_epm.Extremal:Plot"
 Extremal_Run = "mycode_thermal_epm.Extremal:Run"
@@ -42,6 +44,7 @@ ThermalAvalanche_BranchThermal = "mycode_thermal_epm.ThermalAvalanche:BranchTher
 ThermalAvalanche_EnsembleInfo = "mycode_thermal_epm.ThermalAvalanche:EnsembleInfo"
 ThermalAvalanche_Run = "mycode_thermal_epm.ThermalAvalanche:Run"
 Thermal_BranchPreparation = "mycode_thermal_epm.Thermal:BranchPreparation"
+Thermal_EnsembleHeightHeight = "mycode_thermal_epm.Thermal:EnsembleHeightHeight"
 Thermal_EnsembleInfo = "mycode_thermal_epm.Thermal:EnsembleInfo"
 Thermal_Plot = "mycode_thermal_epm.Thermal:Plot"
 Thermal_Run = "mycode_thermal_epm.Thermal:Run"
