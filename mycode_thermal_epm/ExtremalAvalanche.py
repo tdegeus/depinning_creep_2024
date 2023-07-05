@@ -179,7 +179,7 @@ def EnsembleInfo(cli_args=None, myname=m_name):
     parser.add_argument("-v", "--version", action="version", version=version)
     parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
     parser.add_argument("-o", "--output", type=pathlib.Path, help="Output file", default=f_info)
-    parser.add_argument("--nbins", type=int, help="Number of bins", default=100)
+    parser.add_argument("--nbins", type=int, help="Number of bins", default=60)
     parser.add_argument("--ndx", type=int, help="Number of x_c - x_0 to sample", default=100)
     parser.add_argument("--xc", type=float, help="Value of x_c")
     parser.add_argument("--moments", type=int, default=5, help="Number of moments to compute")
