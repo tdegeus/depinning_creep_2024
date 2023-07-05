@@ -236,11 +236,11 @@ def EnsembleInfo(cli_args=None):
                 pdfx += x
 
         output["files"] = sorted([f.name for f in args.files])
-        output["/hist_x/bin_edges"] = pdfx.bin_edges
-        output["/hist_x/count"] = pdfx.count
         output["/dE/first"] = dE.first
         output["/dE/second"] = dE.second
         output["/dE/norm"] = dE.norm
+        output["/hist_x/bin_edges"] = pdfx.bin_edges
+        output["/hist_x/count"] = pdfx.count
 
 
 def EnsembleHeightHeight(cli_args=None):
