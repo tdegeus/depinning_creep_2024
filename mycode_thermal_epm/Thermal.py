@@ -406,31 +406,37 @@ def EnsembleHeightHeight(cli_args=None, myname: str = m_name):
         for ifile, f in enumerate(tqdm.tqdm(args.files)):
             with h5py.File(f) as file:
                 if ifile == 0:
-                    w = int(file["param"]["shape"][0] // 2 - 1)
-                    h = int(file["param"]["shape"][1] // 2 - 1)
-                    hor = eye.Ensemble([w], variance=True, periodic=True)
-                    ver = eye.Ensemble([h], variance=True, periodic=True)
+                    w = int(file["param"]["shape"][0] // 2)
+                    h = int(file["param"]["shape"][1] // 2)
+                    data = {
+                        key: {
+                            "horizontal": eye.Ensemble([2 * w + 1], variance=True, periodic=True),
+                            "vertical": eye.Ensemble([2 * h + 1], variance=True, periodic=True),
+                        }
+                        for key in ["epsp", "epsp", "epse"]
+                    }
 
                 if f"/{myname}/epsp" not in file:
                     continue
 
                 res = file[myname]
+
                 for i in range(res["epsp"].shape[0]):
-                    e = res["epsp"][i, ...]
-                    hor.heightheight(e[0, :])
-                    ver.heightheight(e[:, 0])
+                    entry = {"epsp": res["epsp"][i, ...], "epse": res["sigma"][i, ...]}
+                    entry["eps"] = entry["epsp"] + entry["epse"]
+                    for key in data:
+                        e = entry[key]
+                        data[key]["horizontal"].heightheight(e[0, :])
+                        data[key]["vertical"].heightheight(e[:, 0])
 
-            r = hor.distance(0).astype(int)
-            keep = r >= 0
-            storage.dump_overwrite(output, "/horizontal/mean", hor.result()[keep])
-            storage.dump_overwrite(output, "/horizontal/variance", hor.variance()[keep])
-            storage.dump_overwrite(output, "/horizontal/distance", r[keep])
-
-            r = ver.distance(0).astype(int)
-            keep = r >= 0
-            storage.dump_overwrite(output, "/vertical/mean", ver.result()[keep])
-            storage.dump_overwrite(output, "/vertical/variance", ver.variance()[keep])
-            storage.dump_overwrite(output, "/vertical/distance", r[keep])
+            for key in data:
+                for d in data[key]:
+                    datum = data[key][d]
+                    r = datum.distance(0).astype(int)
+                    keep = r >= 0
+                    storage.dump_overwrite(output, f"/{key}/{d}/mean", datum.result()[keep])
+                    storage.dump_overwrite(output, f"/{key}/{d}/variance", datum.variance()[keep])
+                    storage.dump_overwrite(output, f"/{key}/{d}/distance", r[keep])
             output.flush()
 
 
