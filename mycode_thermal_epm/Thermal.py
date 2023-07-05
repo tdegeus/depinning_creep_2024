@@ -420,7 +420,7 @@ def EnsembleHeightHeight(cli_args=None, myname: str = m_name):
                             "horizontal": eye.Ensemble([2 * w + 1], variance=True, periodic=True),
                             "vertical": eye.Ensemble([2 * h + 1], variance=True, periodic=True),
                         }
-                        for key in ["epsp", "epsp", "epse"]
+                        for key in ["eps", "epsp", "epse"]
                     }
 
                 if f"/{myname}/epsp" not in file:
