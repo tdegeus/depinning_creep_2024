@@ -334,6 +334,8 @@ def EnsembleInfo(cli_args=None):
 
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
+                    alpha = file["param"]["alpha"][...]
+                    dE = enstat.scalar()
                     pdfx = enstat.histogram(
                         bin_edges=np.linspace(0, 3, args.nbin_x), bound_error="ignore"
                     )
@@ -346,7 +348,10 @@ def EnsembleInfo(cli_args=None):
                     )
                     N = np.prod(file["param"]["shape"][...])
 
-                pdfx += (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
+                x = (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
+                sorter = np.argsort(x)
+                dE += x[sorter[1]] ** alpha - x[sorter[0]] ** alpha
+                pdfx += x
                 for i in range(res["T"].shape[0]):
                     ti = res["T"][i, ...]
                     ai = epm.cumsum_n_unique(res["idx"][i, ...]) / N
@@ -355,8 +360,10 @@ def EnsembleInfo(cli_args=None):
                         continue
                     binned.add_sample(ti, si, si**2, ai, ai**2)
 
-            storage.dump_overwrite(output, "/hist_x/x", pdfx.x)
-            storage.dump_overwrite(output, "/hist_x/p", pdfx.p)
+            storage.dump_overwrite(output, "/dE/first", dE.first)
+            storage.dump_overwrite(output, "/dE/second", dE.second)
+            storage.dump_overwrite(output, "/dE/norm", dE.norm)
+            storage.dump_overwrite(output, "/hist_x/bin_edges", pdfx.bin_edges)
             storage.dump_overwrite(output, "/hist_x/count", pdfx.count)
             storage.dump_overwrite(
                 output, "chi4_S", N * (binned["Ssq"].mean() - binned["S"].mean() ** 2)

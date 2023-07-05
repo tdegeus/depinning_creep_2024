@@ -221,21 +221,26 @@ def EnsembleInfo(cli_args=None):
             with h5py.File(f) as file:
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
-                    hist = enstat.histogram(bin_edges=np.linspace(0, 3, 2001))
+                    alpha = file["param"]["alpha"][...]
+                    dE = enstat.scalar()
+                    pdfx = enstat.histogram(bin_edges=np.linspace(0, 3, 2001))
 
                 if m_name not in file:
                     assert not any(m in file for m in m_exclude), "Wrong file type"
                     continue
 
                 res = file[m_name]
-                hist += (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
+                x = (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
+                sorter = np.argsort(x)
+                dE += x[sorter[1]] ** alpha - x[sorter[0]] ** alpha
+                pdfx += x
 
         output["files"] = sorted([f.name for f in args.files])
-
-        res = output.create_group("hist_x")
-        res["x"] = hist.x
-        res["p"] = hist.p
-        res["count"] = hist.count
+        output["/hist_x/bin_edges"] = pdfx.bin_edges
+        output["/hist_x/count"] = pdfx.count
+        output["/dE/first"] = dE.first
+        output["/dE/second"] = dE.second
+        output["/dE/norm"] = dE.norm
 
 
 def EnsembleHeightHeight(cli_args=None):
