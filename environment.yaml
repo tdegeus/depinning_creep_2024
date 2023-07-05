@@ -17,7 +17,6 @@ dependencies:
 - python
 - python-cppcolormap
 - python-gooseeye
-- scipy
 - setuptools_scm
 - shelephant
 - tqdm

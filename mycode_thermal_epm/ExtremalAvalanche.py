@@ -9,7 +9,6 @@ import GooseHDF5 as g5
 import h5py
 import numpy as np
 import tqdm
-from scipy import stats
 
 from . import Extremal
 from . import Preparation
@@ -183,6 +182,7 @@ def EnsembleInfo(cli_args=None, myname=m_name):
     parser.add_argument("--nbins", type=int, help="Number of bins", default=100)
     parser.add_argument("--ndx", type=int, help="Number of x_c - x_0 to sample", default=100)
     parser.add_argument("--xc", type=float, help="Value of x_c")
+    parser.add_argument("--moments", type=int, default=5, help="Number of moments to compute")
     parser.add_argument("files", nargs="*", type=pathlib.Path, help="Simulation files")
 
     args = tools._parse(parser, cli_args)
@@ -191,73 +191,56 @@ def EnsembleInfo(cli_args=None, myname=m_name):
 
     with h5py.File(args.output, "w") as output:
         tools.create_check_meta(output, f"/meta/{myname}/{funcname}", dev=args.develop)
+
         for ifile, f in enumerate(tqdm.tqdm(args.files)):
             with h5py.File(f) as file:
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
                     size = np.prod(file["param"]["shape"][...])
-                    idx = []
-                    xmin = []
                     smax = 0
                 if myname not in file:
                     assert not any(m in file for m in m_exclude), "Wrong file type"
                     continue
                 res = file[myname]
-                idx += [res["idx"][...]]
-                xmin += [res["xmin"][...]]
                 smax = max(smax, res["xmin"].size)
 
         opts = dict(bins=args.nbins, mode="log", integer=True)
         A_bin_edges = enstat.histogram.from_data(np.array([1, size]), **opts).bin_edges
         S_bin_edges = enstat.histogram.from_data(np.array([1, smax]), **opts).bin_edges
-        A_bins = A_bin_edges.size - 1
-        S_bins = S_bin_edges.size - 1
         x0_list = args.xc - np.logspace(-4, np.log10(args.xc), args.ndx)
+        S_hist = [enstat.histogram(bin_edges=S_bin_edges) for _ in x0_list]
+        A_hist = [enstat.histogram(bin_edges=A_bin_edges) for _ in x0_list]
+        S_moment = [[enstat.scalar() for _ in range(args.moments)] for _ in x0_list]
+        A_moment = [[enstat.scalar() for _ in range(args.moments)] for _ in x0_list]
+        fractal = [enstat.binned(bin_edges=A_bin_edges, names=["A", "S"]) for _ in x0_list]
+        output["xc"] = args.xc
         output["x0"] = x0_list
         output["files"] = sorted([f.name for f in args.files])
 
-        for x0 in tqdm.tqdm(x0_list):
-            S = []
-            A = []
-            for x, i in zip(xmin, idx):
-                si, ai = epm.segment_avalanche(x0 >= x, i)
-                S += si.tolist()
-                A += ai.tolist()
+        for ifile, f in enumerate(tqdm.tqdm(args.files)):
+            with h5py.File(f) as file:
+                res = file[myname]
+                idx = res["idx"][...]
+                xmin = res["xmin"][...]
+                for i, x0 in enumerate(tqdm.tqdm(x0_list)):
+                    S, A = epm.segment_avalanche(x0 >= xmin, idx)
+                    S_hist[i] += S
+                    A_hist[i] += A
+                    fractal[i].add_sample(A, S)
+                    for m in range(args.moments):
+                        S_moment[i][m] += S ** (m + 1)
+                        A_moment[i][m] += A ** (m + 1)
 
-            S = np.array(S)
-            A = np.array(A)
+        for name, variable in zip(["S_hist", "A_hist"], [S_hist, A_hist]):
+            output[f"/{name}/bin_edges"] = [i.bin_edges for i in variable]
+            output[f"/{name}/count"] = [i.count for i in variable]
 
-            if S.size == 0 or np.all(np.equal(A, size)):
-                s_x = np.NaN * np.ones(S_bins)
-                s_p = np.NaN * np.ones(S_bins)
-                s_m = np.NaN * np.ones(5)
-                a_x = np.NaN * np.ones(A_bins)
-                a_p = np.NaN * np.ones(A_bins)
-                a_m = np.NaN * np.ones(5)
-            else:
-                hist = enstat.histogram(bin_edges=S_bin_edges)
-                hist += S
-                s_x = hist.x
-                s_p = hist.p
-                m = np.mean(S)
-                s_m = np.array([m] + [stats.moment(S, moment=i) for i in range(2, 6)])
+        for name, variable in zip(["S_moment", "A_moment"], [S_moment, A_moment]):
+            output[f"/{name}/first"] = [[m.first for m in i] for i in variable]
+            output[f"/{name}/second"] = [[m.second for m in i] for i in variable]
+            output[f"/{name}/norm"] = [[m.norm for m in i] for i in variable]
 
-                hist = enstat.histogram(bin_edges=A_bin_edges)
-                hist += A
-                a_x = hist.x
-                a_p = hist.p
-                m = np.mean(A)
-                a_m = np.array([m] + [stats.moment(A, moment=i) for i in range(2, 6)])
-
-            with g5.ExtendableSlice(output, "/S/pdf/x", [S_bins], np.float64) as dset:
-                dset += s_x
-            with g5.ExtendableSlice(output, "/S/pdf/p", [S_bins], np.float64) as dset:
-                dset += s_p
-            with g5.ExtendableSlice(output, "/S/moments", [5], np.float64) as dset:
-                dset += s_m
-            with g5.ExtendableSlice(output, "/A/pdf/x", [A_bins], np.float64) as dset:
-                dset += a_x
-            with g5.ExtendableSlice(output, "/A/pdf/p", [A_bins], np.float64) as dset:
-                dset += a_p
-            with g5.ExtendableSlice(output, "/A/moments", [5], np.float64) as dset:
-                dset += a_m
+        for name in ["S", "A"]:
+            output[f"/fractal/{name}/first"] = [i[name].first for i in fractal]
+            output[f"/fractal/{name}/second"] = [i[name].second for i in fractal]
+            output[f"/fractal/{name}/norm"] = [i[name].norm for i in fractal]

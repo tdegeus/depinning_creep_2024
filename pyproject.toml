@@ -11,7 +11,6 @@ dependencies = [
   "GooseHDF5 >=0.23.0",
   "h5py",
   "numpy",
-  "scipy",
   "tqdm"
 ]
 description = "Simple dataset management"
