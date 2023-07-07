@@ -312,26 +312,30 @@ def EnsembleInfo(cli_args=None):
     assert all([f.exists() for f in args.files])
     tools._check_overwrite_file(args.output, args.force)
 
+    tmin = np.inf
+    tmax = 0
+    nsim = 0
+    for f in tqdm.tqdm(args.files):
+        with h5py.File(f) as file:
+            assert Preparation.get_data_version(file) == data_version
+            assert not any(m in file for m in m_exclude), "Wrong file type"
+            if f"/{m_name}/T" not in file:
+                continue
+            nsim += 1
+            res = file[m_name]
+            for i in range(res["T"].shape[0]):
+                tmin = min(tmin, res["T"][i, 0])
+                tmax = max(tmax, res["T"][i, -1])
+
+    if nsim == 0:
+        return
+
     with h5py.File(args.output, "w") as output:
         tools.create_check_meta(output, f"/meta/{m_name}/{funcname}", dev=args.develop)
         output["files"] = sorted([f.name for f in args.files])
 
-        tmin = np.inf
-        tmax = 0
-        for f in tqdm.tqdm(args.files):
-            with h5py.File(f) as file:
-                assert Preparation.get_data_version(file) == data_version
-                assert m_name in file, "Wrong file type"
-                assert not any(m in file for m in m_exclude), "Wrong file type"
-                snapshot = file[m_name]
-                for i in range(snapshot["T"].shape[0]):
-                    tmin = min(tmin, snapshot["T"][i, 0])
-                    tmax = max(tmax, snapshot["T"][i, -1])
-
         for ifile, f in enumerate(tqdm.tqdm(args.files)):
             with h5py.File(f) as file:
-                res = file[m_name]
-
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
                     alpha = file["param"]["alpha"][...]
@@ -348,6 +352,10 @@ def EnsembleInfo(cli_args=None):
                     )
                     N = np.prod(file["param"]["shape"][...])
 
+                if f"/{m_name}/T" not in file:
+                    continue
+
+                res = file[m_name]
                 x = (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
                 sorter = np.argsort(x)
                 dE += x[sorter[1]] ** alpha - x[sorter[0]] ** alpha

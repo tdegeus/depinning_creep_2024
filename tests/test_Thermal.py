@@ -45,6 +45,7 @@ class MyTests(unittest.TestCase):
         Thermal.BranchPreparation(
             ["--dev", "id=0000.h5", "id=0000_res.h5", "--sigmay", 1.0, 0.3, "--temperature", 0.1]
         )
+        Thermal.EnsembleInfo(["--dev", "-o", "dummy.h5", "id=0000_sim.h5"])
         Thermal.Run(["--dev", "-n", 6, "id=0000_sim.h5"])
         for _ in range(3):
             Thermal.Run(["--dev", "-n", 2, "id=0000_res.h5"])
