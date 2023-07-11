@@ -155,45 +155,6 @@ def _write_completed(src: h5py.File, myname: str = m_name, error: bool = True):
     return n_snapshot, n_avalanche
 
 
-def _cleanup(src: h5py.File, dst: h5py.File):
-    """
-    -   Correct corrupted storage
-    -   Remove unused data
-    """
-
-    ret = None
-    paths = g5.getdatapaths(src, root=f"/{m_name}")
-
-    if f"/{m_name}/mean_epsp" in paths:
-        paths.remove(f"/{m_name}/mean_epsp")
-        ret = dst.filename
-
-    n = np.sort(np.unique([src[path].shape[0] for path in paths]))
-    if n.size == 1 and ret is None:
-        return ret
-    elif n.size == 1:
-        g5.copy(src, dst, paths + ["/meta", "/param", "/restart"])
-    else:
-        n = n[0]
-        ret = dst.filename
-        g5.copy(src, dst, ["/meta", "/param"])
-        for path in paths:
-            shape = list(src[path].shape)
-            shape[0] = n
-            data = dst.create_dataset(
-                path, shape, maxshape=[None] + shape[1:], dtype=src[path].dtype
-            )
-            data[...] = src[path][:n, ...]
-        for key in src["restart"]:
-            if src[f"/restart/{key}"].ndim == 0:
-                dst[f"/restart/{key}"] = src[f"/restart/{key}"][...]
-            else:
-                dst[f"/restart/{key}"] = src[f"/{m_name}/{key}"][-1, ...]
-
-    assert np.all(np.equal(np.argsort(dst[m_name]["t"][...]), np.arange(n)))
-    return ret
-
-
 def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
     """
     Upgrade data to the current version.
@@ -206,10 +167,8 @@ def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
         assert not any(x in src for x in m_exclude + Preparation._libname_pre_v2(m_exclude))
         ver = Preparation.get_data_version(src)
 
-    if tag.equal(ver, "2.0"):
-        temp_file = temp_dir / "cleanup.h5"
-        with h5py.File(filename) as src, h5py.File(temp_file, "w") as dst:
-            return _cleanup(src, dst)
+    if tag.greater_equal(ver, "2.0"):
+        return None
 
     if tag.less(ver, "1.0"):
         temp_file = temp_dir / "from_1_0.h5"
