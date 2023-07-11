@@ -49,6 +49,8 @@ class MyTests(unittest.TestCase):
         Thermal.Run(["--dev", "-n", 6, "id=0000_sim.h5"])
         for _ in range(3):
             Thermal.Run(["--dev", "-n", 2, "id=0000_res.h5"])
+        Thermal.UpgradeData(["--dev", "id=0000_res.h5"])
+        assert not os.path.exists("id=0000_res.h5.bak")
 
         with h5py.File("id=0000_sim.h5") as a, h5py.File("id=0000_res.h5") as b:
             key = "/Thermal/sigma"

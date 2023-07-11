@@ -1,5 +1,6 @@
 import argparse
 import inspect
+import logging
 import pathlib
 import textwrap
 
@@ -108,6 +109,76 @@ def _upgrade_data_to_v1(src: h5py.File, dst: h5py.File):
     assert np.all(np.equal(S, expect)), "S must arange"
 
 
+def _write_completed(src: h5py.File, myname: str = m_name, error: bool = True):
+    """
+    Check basic integrity of data.
+
+    :return: (bool, int) with:
+        bool: True if data is complete
+        int: number of snapshots
+    """
+    if myname not in src:
+        return 0
+
+    if np.any(np.diff(np.argsort(src[f"/{myname}/t"][...])) != 1):
+        raise ValueError(f"{src.filename} has unrecoverable corrupted data.")
+
+    paths = g5.getdatapaths(src, root=f"/{myname}")
+    if f"/{myname}/mean_epsp" in paths:
+        paths.remove(f"/{myname}/mean_epsp")
+    if f"/{myname}/idx_ignore" in paths:
+        paths.remove(f"/{myname}/idx_ignore")
+
+    n = np.unique([src[path].shape[0] for path in paths])
+    if n.size > 1:
+        msg = f"{src.filename} has inconsistent data length. Run UpdateData."
+        if error:
+            raise ValueError(msg)
+        else:
+            logging.warning(msg)
+
+    return np.min(n)
+
+
+def _cleanup(src: h5py.File, dst: h5py.File):
+    """
+    -   Correct corrupted storage
+    -   Remove unused data
+    """
+
+    ret = None
+    paths = g5.getdatapaths(src, root=f"/{m_name}")
+
+    if f"/{m_name}/mean_epsp" in paths:
+        paths.remove(f"/{m_name}/mean_epsp")
+        ret = dst.filename
+
+    n = np.sort(np.unique([src[path].shape[0] for path in paths]))
+    if n.size == 1 and ret is None:
+        return ret
+    elif n.size == 1:
+        g5.copy(src, dst, paths + ["/meta", "/param", "/restart"])
+    else:
+        n = n[0]
+        ret = dst.filename
+        g5.copy(src, dst, ["/meta", "/param"])
+        for path in paths:
+            shape = list(src[path].shape)
+            shape[0] = n
+            data = dst.create_dataset(
+                path, shape, maxshape=[None] + shape[1:], dtype=src[path].dtype
+            )
+            data[...] = src[path][:n, ...]
+        for key in src["restart"]:
+            if src[f"/restart/{key}"].ndim == 0:
+                dst[f"/restart/{key}"] = src[f"/restart/{key}"][...]
+            else:
+                dst[f"/restart/{key}"] = src[f"/{m_name}/{key}"][-1, ...]
+
+    assert np.all(np.equal(np.argsort(dst[m_name]["t"][...]), np.arange(n)))
+    return ret
+
+
 def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
     """
     Upgrade data to the current version.
@@ -120,8 +191,10 @@ def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
         assert not any(x in src for x in m_exclude + Preparation._libname_pre_v2(m_exclude))
         ver = Preparation.get_data_version(src)
 
-    if tag.greater_equal(ver, "2.0"):
-        return None
+    if tag.equal(ver, "2.0"):
+        temp_file = temp_dir / "cleanup.h5"
+        with h5py.File(filename) as src, h5py.File(temp_file, "w") as dst:
+            return _cleanup(src, dst)
 
     if tag.less(ver, "1.0"):
         temp_file = temp_dir / "from_1_0.h5"
@@ -200,15 +273,8 @@ def BranchPreparation(cli_args=None):
 def Run(cli_args=None):
     """
     Run simulation at fixed stress.
-    Measure:
-
-        -   The state every ``--interval`` events.
-            The ``--interval`` is the number of times that all blocks have to have failed between
-            measurements.
-
-        -   Avalanches during ``--ninc`` steps.
-            This measurement can be switched off with ``--flow`` to get minimal output
-            (``mean_epsp`` and ``t``)
+    Measure the state every ``--interval`` events.
+    ``--interval`` is the number of times that all blocks have to have failed between measurements.
     """
 
     class MyFmt(
@@ -231,6 +297,9 @@ def Run(cli_args=None):
 
     args = tools._parse(parser, cli_args)
     assert args.file.exists()
+
+    with h5py.File(args.file, "r") as file:
+        _write_completed(file)
 
     with h5py.File(args.file, "a") as file:
         assert Preparation.get_data_version(file) == data_version
@@ -360,7 +429,8 @@ def EnsembleInfo(cli_args=None):
                 sorter = np.argsort(x)
                 dE += x[sorter[1]] ** alpha - x[sorter[0]] ** alpha
                 pdfx += x
-                for i in range(res["T"].shape[0]):
+                n = _write_completed(file, error=False)
+                for i in range(n):
                     ti = res["T"][i, ...]
                     ai = epm.cumsum_n_unique(res["idx"][i, ...]) / N
                     si = np.arange(1, ti.size + 1) / N
@@ -438,8 +508,8 @@ def EnsembleHeightHeight(cli_args=None, myname: str = m_name):
                     continue
 
                 res = file[myname]
-
-                for i in range(res["epsp"].shape[0]):
+                n = _write_completed(file, myname, error=False)
+                for i in range(n):
                     entry = {"epsp": res["epsp"][i, ...], "epse": res["sigma"][i, ...]}
                     entry["eps"] = entry["epsp"] + entry["epse"]
                     for key in data:
