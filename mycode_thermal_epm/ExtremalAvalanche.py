@@ -86,8 +86,15 @@ def BranchExtremal(cli_args=None):
     with h5py.File(args.input) as src, h5py.File(args.output, "w") as dest:
         assert not any(m in src for m in m_exclude), "Wrong file type"
         g5.copy(src, dest, ["/meta", "/param", "/restart"])
+        dest["restart"]["nstep"] = 0
         meta = tools.create_check_meta(dest, f"/meta/{m_name}/{funcname}", dev=args.develop)
         meta.attrs["t"] = src["restart"]["t"][...]
+        meta.attrs["snapshot"] = src[Extremal.m_name]["t"].size - 1
+
+        for key in ["epsp", "sigma", "sigmay"]:
+            assert np.all(dest["restart"][key][...] == src[Extremal.m_name][key][-1, ...])
+        for key in ["t", "state"]:
+            assert np.all(dest["restart"][key][...] == src[Extremal.m_name][key][-1])
 
 
 def Run(cli_args=None):
@@ -134,14 +141,9 @@ def Run(cli_args=None):
         if m_name not in file:
             assert not any(m in file for m in m_exclude), "Wrong file type"
             res = file.create_group(m_name)
-            dt = 0
         else:
             res = file[m_name]
-            dt = res["idx"].size
-
-        # check data integrity
-        # todo: make independent of BranchExtremal
-        assert file[f"/meta/{m_name}/BranchExtremal"].attrs["t"] + dt == restart["t"][...]
+            assert restart["nstep"][...] == res["idx"].size == res["xmin"].size
 
         for _ in tqdm.tqdm(range(args.ninc // args.ncache), desc=str(args.file)):
             measurement = epm.Avalanche()
