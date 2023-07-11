@@ -121,7 +121,10 @@ def _write_completed(src: h5py.File, myname: str = m_name, error: bool = True):
         return 0
 
     if np.any(np.diff(np.argsort(src[f"/{myname}/t"][...])) != 1):
-        raise ValueError(f"{src.filename} has unrecoverable corrupted data.")
+        raise ValueError(f"{src.filename} has unrecoverable corrupted data (t).")
+
+    if np.any(np.diff(np.argsort(src[f"/{myname}/epsp"][:, 0, 0])) < 0):
+        raise ValueError(f"{src.filename} has unrecoverable corrupted data (epsp).")
 
     paths = g5.getdatapaths(src, root=f"/{myname}")
     if f"/{myname}/mean_epsp" in paths:
