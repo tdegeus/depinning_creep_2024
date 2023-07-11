@@ -113,12 +113,10 @@ def _write_completed(src: h5py.File, myname: str = m_name, error: bool = True):
     """
     Check basic integrity of data.
 
-    :return: (bool, int) with:
-        bool: True if data is complete
-        int: number of snapshots
+    :return: ``(n_snapshot, n_avalanche)``
     """
     if myname not in src:
-        return 0
+        return 0, 0
 
     if np.any(np.diff(src[f"/{myname}/t"][...]) < 0):
         raise ValueError(f"{src.filename} has unrecoverable corrupted data (t).")
@@ -126,21 +124,35 @@ def _write_completed(src: h5py.File, myname: str = m_name, error: bool = True):
     if np.any(np.diff(src[f"/{myname}/epsp"][:, 0, 0]) < 0):
         raise ValueError(f"{src.filename} has unrecoverable corrupted data (epsp).")
 
-    paths = g5.getdatapaths(src, root=f"/{myname}")
-    if f"/{myname}/mean_epsp" in paths:
-        paths.remove(f"/{myname}/mean_epsp")
-    if f"/{myname}/idx_ignore" in paths:
-        paths.remove(f"/{myname}/idx_ignore")
+    paths = {i: i for i in g5.getdatapaths(src, root=f"/{myname}")}
+    paths.pop(f"/{myname}/mean_epsp", None)
+    paths.pop(f"/{myname}/idx_ignore", None)
+    pava = list(filter(None, [paths.pop(i, None) for i in [f"/{myname}/T", f"/{myname}/idx"]]))
+    n_avalanche = np.unique([src[path].shape[0] for path in pava])
+    n_snapshot = np.unique([src[path].shape[0] for path in paths])
 
-    n = np.unique([src[path].shape[0] for path in paths])
-    if n.size > 1:
-        msg = f"{src.filename} has inconsistent data length. Run UpdateData."
-        if error:
-            raise ValueError(msg)
-        else:
-            logging.warning(msg)
+    if n_snapshot.size < n_avalanche.size:
+        raise ValueError(f"{src.filename} has unrecoverable corrupted data (n_snapshot).")
 
-    return np.min(n)
+    for variable in [n_snapshot, n_avalanche]:
+        if variable.size > 1:
+            msg = f"{src.filename} has inconsistent data length. Run UpdateData."
+            if error:
+                raise ValueError(msg)
+            else:
+                logging.warning(msg)
+
+    if n_snapshot.size == 0:
+        n_snapshot = 0
+    elif n_snapshot.size >= 1:
+        n_snapshot = np.min(n_snapshot)
+
+    if n_avalanche.size == 0:
+        n_avalanche = 0
+    elif n_avalanche.size >= 1:
+        n_avalanche = np.min(n_avalanche)
+
+    return n_snapshot, n_avalanche
 
 
 def _cleanup(src: h5py.File, dst: h5py.File):
@@ -273,11 +285,27 @@ def BranchPreparation(cli_args=None):
         tools.create_check_meta(dest, f"/meta/{m_name}/{funcname}", dev=args.develop)
 
 
+def _overwrite_restart(restart: h5py.Group, system: SystemThermalStressControl):
+    restart["epsp"][...] = system.epsp
+    restart["sigma"][...] = system.sigma
+    restart["sigmay"][...] = system.sigmay
+    restart["t"][...] = system.t
+    restart["state"][...] = system.state
+    restart.file.flush()
+
+
 def Run(cli_args=None):
     """
     Run simulation at fixed stress.
     Measure the state every ``--interval`` events.
     ``--interval`` is the number of times that all blocks have to have failed between measurements.
+
+    .. warning::
+
+        The index of the snapshot may not correspond to the index of the avalanche measurement.
+        The snapshot is taken before computing the entire avalanche.
+        Computing the entire avalanche may take a long time, such that the computation can be
+        truncated.
     """
 
     class MyFmt(
@@ -308,7 +336,6 @@ def Run(cli_args=None):
         assert Preparation.get_data_version(file) == data_version
         tools.create_check_meta(file, f"/meta/{m_name}/{funcname}", dev=args.develop)
         system = SystemThermalStressControl(file)
-        global_restart = file["restart"]
         if args.ninc is None:
             args.ninc = 20 * system.size
         else:
@@ -339,6 +366,8 @@ def Run(cli_args=None):
             with g5.ExtendableList(res, "t", np.float64) as dset:
                 dset.append(system.t)
 
+            _overwrite_restart(file["restart"], system)
+
             if args.ninc > 0:
                 t0 = float(system.t)
                 measurement = epm.Avalanche()
@@ -348,12 +377,7 @@ def Run(cli_args=None):
                 with g5.ExtendableSlice(res, "T", [args.ninc], np.float64) as dset:
                     dset += measurement.t - t0
 
-            global_restart["epsp"][...] = system.epsp
-            global_restart["sigma"][...] = system.sigma
-            global_restart["sigmay"][...] = system.sigmay
-            global_restart["t"][...] = system.t
-            global_restart["state"][...] = system.state
-            file.flush()
+            _overwrite_restart(file["restart"], system)
 
 
 def EnsembleInfo(cli_args=None):
@@ -432,7 +456,7 @@ def EnsembleInfo(cli_args=None):
                 sorter = np.argsort(x)
                 dE += x[sorter[1]] ** alpha - x[sorter[0]] ** alpha
                 pdfx += x
-                n = _write_completed(file, error=False)
+                _, n = _write_completed(file, error=False)
                 for i in range(n):
                     ti = res["T"][i, ...]
                     ai = epm.cumsum_n_unique(res["idx"][i, ...]) / N
@@ -511,7 +535,7 @@ def EnsembleHeightHeight(cli_args=None, myname: str = m_name):
                     continue
 
                 res = file[myname]
-                n = _write_completed(file, myname, error=False)
+                n, _ = _write_completed(file, myname, error=False)
                 for i in range(n):
                     entry = {"epsp": res["epsp"][i, ...], "epse": res["sigma"][i, ...]}
                     entry["eps"] = entry["epsp"] + entry["epse"]
