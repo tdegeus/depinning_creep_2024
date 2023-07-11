@@ -347,7 +347,7 @@ def EnsembleInfo(cli_args=None):
                         bin_edges=enstat.histogram.from_data(
                             data=np.array([max(tmin, 1e-9), tmax]), bins=args.nbin_t, mode="log"
                         ).bin_edges,
-                        names=["t", "S", "Ssq", "A", "Asq"],
+                        names=["t", "S", "Ssq", "A", "Asq", "ell"],  # N.B.: ell^2 == A
                         bound_error="ignore",
                     )
                     N = np.prod(file["param"]["shape"][...])
@@ -366,7 +366,7 @@ def EnsembleInfo(cli_args=None):
                     si = np.arange(1, ti.size + 1) / N
                     if np.all(ti == 0):  # happens for very small temperatures
                         continue
-                    binned.add_sample(ti, si, si**2, ai, ai**2)
+                    binned.add_sample(ti, si, si**2, ai, ai**2, np.sqrt(ai))
 
             storage.dump_overwrite(output, "/dE/first", dE.first)
             storage.dump_overwrite(output, "/dE/second", dE.second)
@@ -378,6 +378,9 @@ def EnsembleInfo(cli_args=None):
             )
             storage.dump_overwrite(
                 output, "chi4_A", N * (binned["Asq"].mean() - binned["A"].mean() ** 2)
+            )
+            storage.dump_overwrite(
+                output, "chi4_ell", N * (binned["A"].mean() - binned["ell"].mean() ** 2)
             )
             storage.dump_overwrite(output, "t", binned["t"].mean())
 

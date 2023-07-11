@@ -303,8 +303,8 @@ def EnsembleInfo(cli_args=None):
 
     with h5py.File(args.output, "w") as output:
         tools.create_check_meta(output, f"/meta/{m_name}/{funcname}", dev=args.develop)
-        elastic = {"uframe": [], "sigma": [], "S": [], "A": [], "T": []}
-        plastic = {"uframe": [], "sigma": [], "S": [], "A": [], "T": []}
+        elastic = {"uframe": [], "sigma": [], "S": [], "A": [], "ell": [], "T": []}
+        plastic = {"uframe": [], "sigma": [], "S": [], "A": [], "ell": [], "T": []}
         for ifile, f in enumerate(tqdm.tqdm(args.files)):
             with h5py.File(f) as file:
                 if ifile == 0:
@@ -336,6 +336,7 @@ def EnsembleInfo(cli_args=None):
                 plastic["sigma"] += sigma[i + 1 : end : 2].tolist()
                 plastic["S"] += res["S"][i + 1 : end : 2].tolist()
                 plastic["A"] += res["A"][i + 1 : end : 2].tolist()
+                plastic["ell"] += np.sqrt(res["A"][i + 1 : end : 2]).tolist()
                 plastic["T"] += res["T"][i + 1 : end : 2].tolist()
 
                 if "sigma" in file[m_name]["restore"]:

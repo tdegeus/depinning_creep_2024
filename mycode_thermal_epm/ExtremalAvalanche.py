@@ -196,7 +196,8 @@ def EnsembleInfo(cli_args=None, myname=m_name):
             with h5py.File(f) as file:
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
-                    size = np.prod(file["param"]["shape"][...])
+                    L = np.max(file["param"]["shape"][...])
+                    N = np.prod(file["param"]["shape"][...])
                     smax = 0
                 if myname not in file:
                     assert not any(m in file for m in m_exclude), "Wrong file type"
@@ -205,14 +206,19 @@ def EnsembleInfo(cli_args=None, myname=m_name):
                 smax = max(smax, res["xmin"].size)
 
         opts = dict(bins=args.nbins, mode="log", integer=True)
-        A_bin_edges = enstat.histogram.from_data(np.array([1, size]), **opts).bin_edges
         S_bin_edges = enstat.histogram.from_data(np.array([1, smax]), **opts).bin_edges
+        A_bin_edges = enstat.histogram.from_data(np.array([1, N]), **opts).bin_edges
+        ell_bin_edges = enstat.histogram.from_data(np.array([1, L]), **opts).bin_edges
         x0_list = args.xc - np.logspace(-4, np.log10(args.xc), args.ndx)
+        x0_list = np.concatenate(([args.xc], x0_list))
         S_hist = [enstat.histogram(bin_edges=S_bin_edges) for _ in x0_list]
         A_hist = [enstat.histogram(bin_edges=A_bin_edges) for _ in x0_list]
+        ell_hist = [enstat.histogram(bin_edges=ell_bin_edges) for _ in x0_list]
         S_moment = [[enstat.scalar() for _ in range(args.moments)] for _ in x0_list]
         A_moment = [[enstat.scalar() for _ in range(args.moments)] for _ in x0_list]
-        fractal = [enstat.binned(bin_edges=A_bin_edges, names=["A", "S"]) for _ in x0_list]
+        ell_moment = [[enstat.scalar() for _ in range(args.moments)] for _ in x0_list]
+        fractal_A = [enstat.binned(bin_edges=A_bin_edges, names=["A", "S"]) for _ in x0_list]
+        fractal_ell = [enstat.binned(bin_edges=ell_bin_edges, names=["ell", "S"]) for _ in x0_list]
         output["xc"] = args.xc
         output["x0"] = x0_list
         output["files"] = sorted([f.name for f in args.files])
@@ -224,23 +230,29 @@ def EnsembleInfo(cli_args=None, myname=m_name):
                 xmin = res["xmin"][...]
                 for i, x0 in enumerate(tqdm.tqdm(x0_list)):
                     S, A = epm.segment_avalanche(x0 >= xmin, idx)
-                    S_hist[i] += S
                     A_hist[i] += A
-                    fractal[i].add_sample(A, S)
+                    S_hist[i] += S
+                    ell_hist[i] += np.sqrt(A)
+                    fractal_A[i].add_sample(A, S)
+                    fractal_ell[i].add_sample(np.sqrt(A), S)
                     for m in range(args.moments):
                         S_moment[i][m] += S ** (m + 1)
                         A_moment[i][m] += A ** (m + 1)
+                        ell_moment[i][m] += np.sqrt(A) ** (m + 1)
 
-        for name, variable in zip(["S_hist", "A_hist"], [S_hist, A_hist]):
+        for name, variable in zip(["S_hist", "A_hist", "ell_hist"], [S_hist, A_hist, ell_hist]):
             output[f"/{name}/bin_edges"] = [i.bin_edges for i in variable]
             output[f"/{name}/count"] = [i.count for i in variable]
 
-        for name, variable in zip(["S_moment", "A_moment"], [S_moment, A_moment]):
+        for name, variable in zip(
+            ["S_moment", "A_moment", "ell_moment"], [S_moment, A_moment, ell_moment]
+        ):
             output[f"/{name}/first"] = [[m.first for m in i] for i in variable]
             output[f"/{name}/second"] = [[m.second for m in i] for i in variable]
             output[f"/{name}/norm"] = [[m.norm for m in i] for i in variable]
 
-        for name in ["S", "A"]:
-            output[f"/fractal/{name}/first"] = [i[name].first for i in fractal]
-            output[f"/fractal/{name}/second"] = [i[name].second for i in fractal]
-            output[f"/fractal/{name}/norm"] = [i[name].norm for i in fractal]
+        for name, variable in zip(["fractal_A", "fractal_ell"], [fractal_A, fractal_ell]):
+            for key in ["S", name.split("_")[1]]:
+                output[f"/{name}/{key}/first"] = [i[key].first for i in variable]
+                output[f"/{name}/{key}/second"] = [i[key].second for i in variable]
+                output[f"/{name}/{key}/norm"] = [i[key].norm for i in variable]
