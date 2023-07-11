@@ -181,12 +181,7 @@ def Run(cli_args=None):
             with g5.ExtendableList(res, "t", np.float64) as dset:
                 dset.append(system.t)
 
-            restart["epsp"][...] = system.epsp
-            restart["sigma"][...] = system.sigma
-            restart["sigmay"][...] = system.sigmay
-            restart["t"][...] = system.t
-            restart["state"][...] = system.state
-            file.flush()
+            Preparation.overwrite_restart(restart, system)
 
 
 def EnsembleInfo(cli_args=None):

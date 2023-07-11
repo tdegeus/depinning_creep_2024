@@ -356,3 +356,18 @@ def Run(cli_args=None):
         init["sigma"][...] = system.sigma
         init["sigmay"][...] = system.sigmay
         init["state"][...] = system.state
+
+
+def overwrite_restart(restart: h5py.Group, system):
+    """
+    Dump system state to a restart group.
+
+    :param restart: Restart group
+    :param system: System
+    """
+    storage.dump_overwrite(restart, "epsp", system.epsp)
+    storage.dump_overwrite(restart, "sigma", system.sigma)
+    storage.dump_overwrite(restart, "sigmay", system.sigmay)
+    storage.dump_overwrite(restart, "t", system.t)
+    storage.dump_overwrite(restart, "state", system.state)
+    restart.file.flush()

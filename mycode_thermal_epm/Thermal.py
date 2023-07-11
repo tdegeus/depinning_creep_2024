@@ -285,15 +285,6 @@ def BranchPreparation(cli_args=None):
         tools.create_check_meta(dest, f"/meta/{m_name}/{funcname}", dev=args.develop)
 
 
-def _overwrite_restart(restart: h5py.Group, system: SystemThermalStressControl):
-    restart["epsp"][...] = system.epsp
-    restart["sigma"][...] = system.sigma
-    restart["sigmay"][...] = system.sigmay
-    restart["t"][...] = system.t
-    restart["state"][...] = system.state
-    restart.file.flush()
-
-
 def Run(cli_args=None):
     """
     Run simulation at fixed stress.
@@ -366,7 +357,7 @@ def Run(cli_args=None):
             with g5.ExtendableList(res, "t", np.float64) as dset:
                 dset.append(system.t)
 
-            _overwrite_restart(file["restart"], system)
+            Preparation.overwrite_restart(file["restart"], system)
 
             if args.ninc > 0:
                 t0 = float(system.t)
@@ -377,7 +368,7 @@ def Run(cli_args=None):
                 with g5.ExtendableSlice(res, "T", [args.ninc], np.float64) as dset:
                     dset += measurement.t - t0
 
-            _overwrite_restart(file["restart"], system)
+            Preparation.overwrite_restart(file["restart"], system)
 
 
 def EnsembleInfo(cli_args=None):

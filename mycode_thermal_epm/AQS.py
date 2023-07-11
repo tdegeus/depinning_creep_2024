@@ -229,10 +229,7 @@ def Run(cli_args=None):
             # full state
             if step == start + args.nstep - 1 or time.time() - tic > args.backup_interval * 60:
                 tic = time.time()
-                restart["epsp"][...] = system.epsp
-                restart["sigma"][...] = system.sigma
-                restart["sigmay"][...] = system.sigmay
-                restart["state"][...] = system.state
+                Preparation.overwrite_restart(restart, system)
                 restart["uframe"][...] = system.epsframe
                 restart["step"][...] = step
                 file.flush()
