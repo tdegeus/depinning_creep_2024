@@ -197,18 +197,32 @@ def EnsembleInfo(cli_args=None, myname=m_name):
                     L = np.max(file["param"]["shape"][...])
                     N = np.prod(file["param"]["shape"][...])
                     smax = 0
+                    xmin = np.inf
+                    xmax = -np.inf
                 if myname not in file:
                     assert not any(m in file for m in m_exclude), "Wrong file type"
                     continue
                 res = file[myname]
-                smax = max(smax, res["xmin"].size)
+                x = res["xmin"][...]
+                smax = max(smax, x.size)
+                xmin = min(xmin, np.min(x))
+                xmax = max(xmax, np.max(x))
 
         opts = dict(bins=args.nbins, mode="log", integer=True)
+        x_bin_edges = enstat.histogram.from_data(np.array([xmin, xmax]), bins=500).bin_edges
         S_bin_edges = enstat.histogram.from_data(np.array([1, smax]), **opts).bin_edges
         A_bin_edges = enstat.histogram.from_data(np.array([1, N]), **opts).bin_edges
         ell_bin_edges = enstat.histogram.from_data(np.array([1, L]), **opts).bin_edges
-        x0_list = args.xc - np.logspace(-4, np.log10(args.xc), args.ndx)
-        x0_list = np.concatenate(([args.xc], x0_list))
+        if args.xc is None:
+            x0_list = np.linspace(xmin, xmax, args.ndx)
+        else:
+            x0_list = args.xc - np.logspace(-4, np.log10(args.xc), args.ndx)
+            x0_list = np.concatenate(([args.xc], x0_list))
+            output["xc"] = args.xc
+        output["x0"] = x0_list
+        output["files"] = sorted([f.name for f in args.files])
+
+        x_hist = enstat.histogram(bin_edges=x_bin_edges)
         S_hist = [enstat.histogram(bin_edges=S_bin_edges) for _ in x0_list]
         A_hist = [enstat.histogram(bin_edges=A_bin_edges) for _ in x0_list]
         ell_hist = [enstat.histogram(bin_edges=ell_bin_edges) for _ in x0_list]
@@ -217,26 +231,29 @@ def EnsembleInfo(cli_args=None, myname=m_name):
         ell_moment = [[enstat.scalar() for _ in range(args.moments)] for _ in x0_list]
         fractal_A = [enstat.binned(bin_edges=A_bin_edges, names=["A", "S"]) for _ in x0_list]
         fractal_ell = [enstat.binned(bin_edges=ell_bin_edges, names=["ell", "S"]) for _ in x0_list]
-        output["xc"] = args.xc
-        output["x0"] = x0_list
-        output["files"] = sorted([f.name for f in args.files])
 
         for ifile, f in enumerate(tqdm.tqdm(args.files)):
             with h5py.File(f) as file:
                 res = file[myname]
                 idx = res["idx"][...]
                 xmin = res["xmin"][...]
+                x_hist += xmin
                 for i, x0 in enumerate(tqdm.tqdm(x0_list)):
-                    S, A = epm.segment_avalanche(x0 >= xmin, idx)
+                    S, A = epm.segment_avalanche(x0 >= xmin, idx, first=False, last=False)
+                    ell = np.sqrt(A)
                     A_hist[i] += A
                     S_hist[i] += S
-                    ell_hist[i] += np.sqrt(A)
+                    ell_hist[i] += ell
                     fractal_A[i].add_sample(A, S)
-                    fractal_ell[i].add_sample(np.sqrt(A), S)
+                    fractal_ell[i].add_sample(ell, S)
                     for m in range(args.moments):
                         S_moment[i][m] += S ** (m + 1)
                         A_moment[i][m] += A ** (m + 1)
-                        ell_moment[i][m] += np.sqrt(A) ** (m + 1)
+                        ell_moment[i][m] += ell ** (m + 1)
+
+        for name, variable in zip(["x_hist"], [x_hist]):
+            output[f"/{name}/bin_edges"] = variable.bin_edges
+            output[f"/{name}/count"] = variable.count
 
         for name, variable in zip(["S_hist", "A_hist", "ell_hist"], [S_hist, A_hist, ell_hist]):
             output[f"/{name}/bin_edges"] = [i.bin_edges for i in variable]
