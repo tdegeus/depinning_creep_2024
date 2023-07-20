@@ -214,10 +214,12 @@ def EnsembleInfo(cli_args=None, myname=m_name):
         A_bin_edges = enstat.histogram.from_data(np.array([1, N]), **opts).bin_edges
         ell_bin_edges = enstat.histogram.from_data(np.array([1, L]), **opts).bin_edges
         if args.xc is None:
-            x0_list = np.linspace(xmin, xmax, args.ndx)
+            n = args.ndx // 2
+            x0_list = np.linspace(xmin, xmax, n)[:-2]
+            x0_list = np.concatenate((x0_list, np.linspace(x0_list[-1], xmax, n + 3)[1:]))
         else:
             x0_list = args.xc - np.logspace(-4, np.log10(args.xc), args.ndx)
-            x0_list = np.concatenate(([args.xc], x0_list))
+            x0_list = np.sort(np.concatenate(([args.xc], x0_list)))
             output["xc"] = args.xc
         output["x0"] = x0_list
         output["files"] = sorted([f.name for f in args.files])
