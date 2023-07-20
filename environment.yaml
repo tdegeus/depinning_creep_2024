@@ -3,7 +3,7 @@ channels:
 dependencies:
 - autodocsumm
 - click
-- enstat
+- enstat >=0.9.6
 - goosehdf5 >=0.23.0
 - goosempl
 - gooseslurm

@@ -12,6 +12,7 @@ import tqdm
 
 from . import Extremal
 from . import Preparation
+from . import storage
 from . import tag
 from . import tools
 from ._version import version
@@ -180,7 +181,9 @@ def EnsembleInfo(cli_args=None, myname=m_name):
     parser.add_argument("--nbins", type=int, help="Number of bins", default=60)
     parser.add_argument("--ndx", type=int, help="Number of x_c - x_0 to sample", default=100)
     parser.add_argument("--xc", type=float, help="Value of x_c")
-    parser.add_argument("--moments", type=int, default=5, help="Number of moments to compute")
+    parser.add_argument(
+        "--means", type=int, default=3, help="Compute <S, A, ell>**(i + 1) for i in range(means)"
+    )
     parser.add_argument("files", nargs="*", type=pathlib.Path, help="Simulation files")
 
     args = tools._parse(parser, cli_args)
@@ -228,9 +231,9 @@ def EnsembleInfo(cli_args=None, myname=m_name):
         S_hist = [enstat.histogram(bin_edges=S_bin_edges) for _ in x0_list]
         A_hist = [enstat.histogram(bin_edges=A_bin_edges) for _ in x0_list]
         ell_hist = [enstat.histogram(bin_edges=ell_bin_edges) for _ in x0_list]
-        S_moment = [[enstat.scalar() for _ in range(args.moments)] for _ in x0_list]
-        A_moment = [[enstat.scalar() for _ in range(args.moments)] for _ in x0_list]
-        ell_moment = [[enstat.scalar() for _ in range(args.moments)] for _ in x0_list]
+        S_mean = [[enstat.scalar(dtype=int) for _ in range(args.means)] for _ in x0_list]
+        A_mean = [[enstat.scalar(dtype=int) for _ in range(args.means)] for _ in x0_list]
+        ell_mean = [[enstat.scalar(dtype=int) for _ in range(args.means)] for _ in x0_list]
         fractal_A = [enstat.binned(bin_edges=A_bin_edges, names=["A", "S"]) for _ in x0_list]
         fractal_ell = [enstat.binned(bin_edges=ell_bin_edges, names=["ell", "S"]) for _ in x0_list]
 
@@ -248,28 +251,42 @@ def EnsembleInfo(cli_args=None, myname=m_name):
                     ell_hist[i] += ell
                     fractal_A[i].add_sample(A, S)
                     fractal_ell[i].add_sample(ell, S)
-                    for m in range(args.moments):
-                        S_moment[i][m] += S ** (m + 1)
-                        A_moment[i][m] += A ** (m + 1)
-                        ell_moment[i][m] += ell ** (m + 1)
+                    S = S.astype(int).astype("object")
+                    A = A.astype(int).astype("object")
+                    for p in range(args.means):
+                        S_mean[i][p] += S ** (p + 1)
+                        A_mean[i][p] += A ** (p + 1)
+                        ell_mean[i][p] += ell ** (p + 1)
 
-        for name, variable in zip(["x_hist"], [x_hist]):
-            output[f"/{name}/bin_edges"] = variable.bin_edges
-            output[f"/{name}/count"] = variable.count
+            for n, v in zip(["x_hist"], [x_hist]):
+                storage.dump_overwrite(output, f"/{n}/bin_edges", v.bin_edges)
+                storage.dump_overwrite(output, f"/{n}/count", v.count)
 
-        for name, variable in zip(["S_hist", "A_hist", "ell_hist"], [S_hist, A_hist, ell_hist]):
-            output[f"/{name}/bin_edges"] = [i.bin_edges for i in variable]
-            output[f"/{name}/count"] = [i.count for i in variable]
+            for n, v in zip(["S_hist", "A_hist", "ell_hist"], [S_hist, A_hist, ell_hist]):
+                storage.dump_overwrite(output, f"/{n}/bin_edges", [i.bin_edges for i in v])
+                storage.dump_overwrite(output, f"/{n}/count", [i.count for i in v])
 
-        for name, variable in zip(
-            ["S_moment", "A_moment", "ell_moment"], [S_moment, A_moment, ell_moment]
-        ):
-            output[f"/{name}/first"] = [[m.first for m in i] for i in variable]
-            output[f"/{name}/second"] = [[m.second for m in i] for i in variable]
-            output[f"/{name}/norm"] = [[m.norm for m in i] for i in variable]
+            for n, v in zip(["S_mean", "A_mean", "ell_mean"], [S_mean, A_mean, ell_mean]):
+                storage.dump_overwrite(
+                    output,
+                    f"/{n}/first",
+                    np.array([[int(m.first) for m in i] for i in v], dtype=np.float64),
+                )
+                storage.dump_overwrite(
+                    output,
+                    f"/{n}/second",
+                    np.array([[int(m.second) for m in i] for i in v], dtype=np.float64),
+                )
+                storage.dump_overwrite(
+                    output,
+                    f"/{n}/norm",
+                    np.array([[int(m.norm) for m in i] for i in v], dtype=np.float64),
+                )
 
-        for name, variable in zip(["fractal_A", "fractal_ell"], [fractal_A, fractal_ell]):
-            for key in ["S", name.split("_")[1]]:
-                output[f"/{name}/{key}/first"] = [i[key].first for i in variable]
-                output[f"/{name}/{key}/second"] = [i[key].second for i in variable]
-                output[f"/{name}/{key}/norm"] = [i[key].norm for i in variable]
+            for n, v in zip(["fractal_A", "fractal_ell"], [fractal_A, fractal_ell]):
+                for key in ["S", n.split("_")[1]]:
+                    storage.dump_overwrite(output, f"/{n}/{key}/first", [i[key].first for i in v])
+                    storage.dump_overwrite(output, f"/{n}/{key}/second", [i[key].second for i in v])
+                    storage.dump_overwrite(output, f"/{n}/{key}/norm", [i[key].norm for i in v])
+
+            output.flush()
