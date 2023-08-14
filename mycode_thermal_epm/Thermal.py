@@ -21,6 +21,7 @@ from .Preparation import data_version
 
 f_info = "EnsembleInfo.h5"
 f_height = "EnsembleHeightHeight.h5"
+f_structure = "EnsembleStructure.h5"
 m_name = "Thermal"
 m_avalanche = "Avalanche"
 m_exclude = ["AQS", "Extremal", "ExtremalAvalanche"]
@@ -503,6 +504,78 @@ def EnsembleHeightHeight(cli_args=None, myname: str = m_name):
                     storage.dump_overwrite(output, f"/{key}/{d}/mean", datum.result()[keep])
                     storage.dump_overwrite(output, f"/{key}/{d}/variance", datum.variance()[keep])
                     storage.dump_overwrite(output, f"/{key}/{d}/distance", r[keep])
+            output.flush()
+
+
+def EnsembleStructure(cli_args=None, myname: str = m_name):
+    """
+    Extract the structure factor at snapshots.
+    See: https://doi.org/10.1103/PhysRevLett.118.147208
+    """
+
+    class MyFmt(
+        argparse.RawDescriptionHelpFormatter,
+        argparse.ArgumentDefaultsHelpFormatter,
+        argparse.MetavarTypeHelpFormatter,
+    ):
+        pass
+
+    funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
+
+    parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
+    parser.add_argument("-v", "--version", action="version", version=version)
+    parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
+    parser.add_argument(
+        "-o", "--output", type=pathlib.Path, help="Output file", default=f_structure
+    )
+    parser.add_argument("files", nargs="*", type=pathlib.Path, help="Simulation files")
+
+    args = tools._parse(parser, cli_args)
+    assert all([f.exists() for f in args.files])
+    tools._check_overwrite_file(args.output, args.force)
+
+    with h5py.File(args.output, "w") as output:
+        tools.create_check_meta(output, f"/meta/{m_name}/{funcname}", dev=args.develop)
+        output["files"] = sorted([f.name for f in args.files])
+
+        for ifile, f in enumerate(tqdm.tqdm(args.files)):
+            with h5py.File(f) as file:
+                if ifile == 0:
+                    g5.copy(file, output, ["/param"])
+                    shape = file["param"]["shape"][...]
+                    L = int(shape[0])
+                    assert np.all(np.equal(shape, L))
+                    assert L % 2 == 0
+                    q = np.fft.fftfreq(L)
+                    output["q"] = q
+                    idx = int(L / 2)
+                    assert np.all(q[1:idx] + np.flip(q[idx + 1 :]) == 0)
+                    qshape = [idx - 1 for _ in shape]
+                    data = {i: enstat.static(shape=qshape) for i in ["eps", "epsp", "epse"]}
+
+                if f"/{myname}/epsp" not in file:
+                    continue
+
+                res = file[myname]
+                n, _ = _check_data(file, myname, error=False)
+                for i in range(n):
+                    entry = {"epsp": res["epsp"][i, ...], "epse": res["sigma"][i, ...]}
+                    entry["eps"] = entry["epsp"] + entry["epse"]
+                    for key in entry:
+                        e = entry[key]
+                        e -= e.mean()
+                        ehat = np.fft.fft2(e)
+                        data[key] += np.real(
+                            ehat[1:idx, 1:idx] * np.flip(ehat[idx + 1 :, idx + 1 :])
+                        )
+
+            for key in data:
+                datum = data[key]
+                storage.dump_overwrite(output, f"/{key}/first", datum.first)
+                storage.dump_overwrite(output, f"/{key}/second", datum.second)
+                storage.dump_overwrite(output, f"/{key}/norm", datum.norm)
             output.flush()
 
 

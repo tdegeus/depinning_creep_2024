@@ -245,6 +245,13 @@ def EnsembleHeightHeight(cli_args=None):
     return Thermal.EnsembleHeightHeight(cli_args, m_name)
 
 
+def EnsembleStructure(cli_args=None):
+    """
+    Extract the structure factor at snapshots.
+    """
+    return Thermal.EnsembleStructure(cli_args, m_name)
+
+
 def Plot(cli_args=None):
     """
     Basic of the ensemble.

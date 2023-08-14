@@ -51,6 +51,7 @@ class MyTests(unittest.TestCase):
 
         Extremal.EnsembleInfo(["--dev", "id=0000_sim.h5"])
         Extremal.EnsembleHeightHeight(["--dev", "id=0000_sim.h5"])
+        Extremal.EnsembleStructure(["--dev", "id=0000_sim.h5"])
 
 
 if __name__ == "__main__":
