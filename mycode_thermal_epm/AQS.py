@@ -346,8 +346,8 @@ def EnsembleInfo(cli_args=None):
             output["/plastic/" + key] = plastic[key]
 
         res = output.create_group("hist_x")
-        res["x"] = hist.x
-        res["p"] = hist.p
+        res["bin_edges"] = hist.bin_edges
+        res["count"] = hist.count
 
 
 def Plot(cli_args=None):
