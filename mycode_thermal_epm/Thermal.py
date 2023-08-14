@@ -109,7 +109,7 @@ def _upgrade_data_to_v1(src: h5py.File, dst: h5py.File):
     assert np.all(np.equal(S, expect)), "S must arange"
 
 
-def _write_completed(src: h5py.File, myname: str = m_name, error: bool = True):
+def _check_data(src: h5py.File, myname: str = m_name, error: bool = True):
     """
     Check basic integrity of data.
 
@@ -280,7 +280,7 @@ def Run(cli_args=None):
     assert args.file.exists()
 
     with h5py.File(args.file, "r") as file:
-        _write_completed(file)
+        _check_data(file)
 
     with h5py.File(args.file, "a") as file:
         assert Preparation.get_data_version(file) == data_version
@@ -406,7 +406,7 @@ def EnsembleInfo(cli_args=None):
                 sorter = np.argsort(x)
                 dE += x[sorter[1]] ** alpha - x[sorter[0]] ** alpha
                 pdfx += x
-                _, n = _write_completed(file, error=False)
+                _, n = _check_data(file, error=False)
                 for i in range(n):
                     ti = res["T"][i, ...]
                     ai = epm.cumsum_n_unique(res["idx"][i, ...]) / N
@@ -486,11 +486,11 @@ def EnsembleHeightHeight(cli_args=None, myname: str = m_name):
                     continue
 
                 res = file[myname]
-                n, _ = _write_completed(file, myname, error=False)
+                n, _ = _check_data(file, myname, error=False)
                 for i in range(n):
                     entry = {"epsp": res["epsp"][i, ...], "epse": res["sigma"][i, ...]}
                     entry["eps"] = entry["epsp"] + entry["epse"]
-                    for key in data:
+                    for key in entry:
                         e = entry[key]
                         data[key]["horizontal"].heightheight(e[0, :])
                         data[key]["vertical"].heightheight(e[:, 0])
