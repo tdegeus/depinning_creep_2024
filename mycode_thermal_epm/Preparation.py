@@ -357,12 +357,22 @@ def Generate(cli_args=None):
 
     assert len(os.path.split(args.outdir)) > 1
 
+    if args.dynamics == "depinning":
+        sigmay_mean = 0
+        sigmay_std = 1
+    else:
+        sigmay_mean = 1
+        sigmay_std = 0.3
+
     for name in ["AQS", "Extremal"]:
         base = args.outdir / ".." / name
         base.mkdir(parents=True, exist_ok=True)
 
         exec = f"{name}_BranchPreparation"
-        commands = [f"{exec} ../{args.outdir.name}/{f} {f}" for f in files]
+        commands = [
+            f"{exec} --sigmay {sigmay_mean:.1f} {sigmay_std:.1f} ../{args.outdir.name}/{f} {f}"
+            for f in files
+        ]
         shelephant.yaml.dump(base / "commands_branch.yaml", commands, force=True)
 
         exec = f"{name}_Run"
@@ -374,6 +384,8 @@ def Generate(cli_args=None):
 
     name = "Thermal"
     temperatures = {
+        "temperature=0,002": 0.002,
+        "temperature=0,003": 0.003,
         "temperature=0,005": 0.005,
         "temperature=0,007": 0.007,
         "temperature=0,01": 0.01,
@@ -383,7 +395,9 @@ def Generate(cli_args=None):
         "temperature=0,07": 0.07,
         "temperature=0,1": 0.1,
         "temperature=0,2": 0.2,
+        "temperature=0,3": 0.3,
         "temperature=0,5": 0.5,
+        "temperature=0,7": 0.7,
     }
     for key, temp in temperatures.items():
         base = args.outdir / ".." / name / key
