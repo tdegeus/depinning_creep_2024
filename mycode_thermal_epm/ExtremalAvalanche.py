@@ -62,7 +62,7 @@ def UpgradeData(cli_args=None):
 def BranchExtremal(cli_args=None):
     r"""
     Branch from prepared stress state using :py:func:`Run`:
-    Copy ``\param`` and ``\restart``.
+    Copy ``/param`` and ``/restart``.
     """
 
     class MyFmt(
@@ -129,7 +129,7 @@ def Run(cli_args=None):
 
     with h5py.File(args.file, "a") as file:
         tools.create_check_meta(file, f"/meta/{m_name}/{funcname}", dev=args.develop)
-        system = Extremal.SystemStressControl(file)
+        system = Extremal.allocate_system(file)
         restart = file["restart"]
         if args.ninc is None:
             args.ninc = args.ninc_size * system.size

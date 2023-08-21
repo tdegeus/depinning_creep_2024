@@ -6,6 +6,7 @@ import shutil
 import tempfile
 import textwrap
 
+import enstat
 import GooseEPM as epm
 import GooseHDF5 as g5
 import h5py
@@ -26,6 +27,41 @@ def propagator(param: h5py.Group):
     if param["interactions"].asstr()[...] == "monotonic-shortrange":
         return epm.laplace_propagator()
     raise NotImplementedError("Unknown interactions type '%s'" % param["interactions"])
+
+
+def get_dynamics(file: h5py.File) -> str:
+    """
+    Read the dynamics from the file.
+    :param file: Opened file (read ``/param/dynamics``).
+    """
+    assert "param" in file
+    if "dynamics" in file["param"]:
+        return file["param"]["dynamics"].asstr()[...]
+    return "default"
+
+
+def get_x(file: h5py.File, data: h5py.Group) -> np.ndarray:
+    """
+    Read the distance to yielding.
+    :param file: Data file (forwarded to :py:func:`get_dynamics`).
+    :param data: Data group to read ``sigmay`` and ``sigma`` from.
+    :return: Distance to yielding.
+    """
+    if get_dynamics(file) == "depinning":
+        return data["sigmay"][...] - data["sigma"][...]
+    return data["sigmay"][...] - np.abs(data["sigma"][...])
+
+
+def store_histogram(data: h5py.Group, hist: enstat.histogram):
+    """
+    Store the histogram.
+    :param data: Data group.
+    :param hist: Histogram.
+    """
+    storage.dump_overwrite(data, "bin_edges", hist.bin_edges)
+    storage.dump_overwrite(data, "count", hist.count)
+    storage.dump_overwrite(data, "count_left", hist.count_left)
+    storage.dump_overwrite(data, "count_right", hist.count_right)
 
 
 def get_data_version(file: h5py.File) -> str:
@@ -197,6 +233,29 @@ class SystemStressControl(epm.SystemStressControl):
         )
 
 
+class DepinningSystemStressControl(epm.Depinning.SystemStressControl):
+    def __init__(self, file: h5py.File):
+        param = file["param"]
+        init = file["init"]
+        assert np.isclose(init["sigmay"].attrs["mean"], 0)
+
+        epm.Depinning.SystemStressControl.__init__(
+            self,
+            *propagator(param),
+            sigmay_std=np.ones(param["shape"][...]) * init["sigmay"].attrs["std"],
+            seed=init["state"].attrs["seed"],
+            alpha=param["alpha"][...],
+            random_stress=True,
+        )
+
+
+def allocate_system(file: h5py.File):
+    if get_dynamics(file):
+        return DepinningSystemStressControl(file)
+    else:
+        return SystemStressControl(file)
+
+
 def Generate(cli_args=None):
     """
     Generate IO file of the following structure::
@@ -238,6 +297,14 @@ def Generate(cli_args=None):
         type=str,
         choices=["monotonic-shortrange", "monotonic-longrange", "eshelby"],
         help="Interaction type",
+        default="monotonic-shortrange",
+    )
+    parser.add_argument(
+        "--dynamics",
+        type=str,
+        choices=["default", "depinning"],
+        help="Dynamics",
+        default="depinning",
     )
     parser.add_argument("--all", action="store_true", help="Generate a suggestion of runs")
 
@@ -263,6 +330,7 @@ def Generate(cli_args=None):
             param = file.create_group("param")
             param["alpha"] = args.alpha
             param["shape"] = args.shape
+            param["dynamics"] = args.dynamics
             param["interactions"] = args.interactions
             param["data_version"] = data_version
 
@@ -270,8 +338,12 @@ def Generate(cli_args=None):
             init.create_dataset("sigma", shape=args.shape, dtype=np.float64)
 
             init.create_dataset("sigmay", shape=args.shape, dtype=np.float64)
-            init["sigmay"].attrs["mean"] = 1.0
             init["sigmay"].attrs["std"] = 0.3
+
+            if args.dynamics == "depinning":
+                init["sigmay"].attrs["mean"] = 0.0
+            else:
+                init["sigmay"].attrs["mean"] = 1.0
 
             init.create_dataset("state", shape=[], dtype=np.uint64)
             init["state"].attrs["seed"] = seed
@@ -351,7 +423,7 @@ def Run(cli_args=None):
 
     with h5py.File(args.file, "a") as file:
         tools.create_check_meta(file, f"/meta/Preparation/{funcname}", dev=args.develop)
-        system = SystemStressControl(file)
+        system = allocate_system(file)
         init = file["init"]
         init["sigma"][...] = system.sigma
         init["sigmay"][...] = system.sigmay

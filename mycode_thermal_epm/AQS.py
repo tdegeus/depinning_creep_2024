@@ -45,6 +45,37 @@ class SystemSpringLoading(epm.SystemSpringLoading):
         self.step = restart["step"][...]
 
 
+class DepinningSystemSpringLoading(epm.Depinning.SystemSpringLoading):
+    def __init__(self, file: h5py.File):
+        param = file["param"]
+        restart = file["restart"]
+        assert np.isclose(param["sigmay"][0], 0)
+
+        epm.Depinning.SystemSpringLoading.__init__(
+            self,
+            *Preparation.propagator(param),
+            sigmay_std=np.ones(param["shape"][...]) * param["sigmay"][1],
+            seed=restart["state"].attrs["seed"],
+            alpha=param["alpha"][...],
+            kframe=param["kframe"][...],
+            random_stress=False,
+        )
+
+        self.epsp = restart["epsp"][...]
+        self.sigma = restart["sigma"][...]
+        self.sigmay = restart["sigmay"][...]
+        self.state = restart["state"][...]
+        self.epsframe = restart["uframe"][...]
+        self.step = restart["step"][...]
+
+
+def allocate_system(file: h5py.File):
+    if Preparation.get_dynamics(file):
+        return DepinningSystemSpringLoading(file)
+    else:
+        return SystemSpringLoading(file)
+
+
 def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
     """
     Upgrade data to the current version.
@@ -81,11 +112,11 @@ def BranchPreparation(cli_args=None):
     r"""
     Branch from prepared stress state and add parameters.
 
-    1.  Copy ``\param``.
-        Add ``\param\kframe``, ``\param\sigmay``.
+    1.  Copy ``/param``.
+        Add ``/param/kframe``, ``/param/sigmay``.
 
-    2.  Copy ``\init`` to ``\restart``.
-        Add ``\restart\epsp``, ``\restart\step``, and ``\restart\uframe``.
+    2.  Copy ``/init`` to ``/restart``.
+        Add ``/restart/epsp``, ``/restart/step``, and ``/restart/uframe``.
     """
 
     class MyFmt(
@@ -102,7 +133,7 @@ def BranchPreparation(cli_args=None):
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("--kframe", type=float, help="Frame stiffness (default 1 / L**2)")
     parser.add_argument(
-        "--sigmay", type=float, nargs=2, default=[1.0, 0.3], help="Mean and std of sigmay"
+        "--sigmay", type=float, nargs=2, required=True, help="Mean and std of sigmay"
     )
     parser.add_argument("input", type=pathlib.Path, help="Input file (read-only)")
     parser.add_argument("output", type=pathlib.Path, help="Output file (overwritten)")
@@ -132,12 +163,12 @@ def Run(cli_args=None):
     Run simulation for a fixed number of steps.
 
     -   Write global output per step (``uframe``, ``sigma``, ``T``, ``S``, ``A``) in
-        ``\AQS``.
+        ``/AQS``.
 
-    -   Write state to ``\AQS\restore`` every time a system-spanning event occurs
+    -   Write state to ``/AQS/restore`` every time a system-spanning event occurs
         (can be used to uniquely restore the system in this state).
 
-    -   Backup state every ``backup_interval`` minutes by overwriting ``\restart``.
+    -   Backup state every ``backup_interval`` minutes by overwriting ``/restart``.
         (can be used to uniquely restore the system in this state).
     """
 
@@ -163,7 +194,7 @@ def Run(cli_args=None):
 
     with h5py.File(args.file, "a") as file:
         tools.create_check_meta(file, f"/meta/{m_name}/{funcname}", dev=args.develop)
-        system = SystemSpringLoading(file)
+        system = allocate_system(file)
         restart = file["restart"]
 
         if m_name not in file:
@@ -175,11 +206,12 @@ def Run(cli_args=None):
             res = file[m_name]
             restore = res["restore"]
             start = restart["step"][...] + 1
-            # previous run was interrupted -> output arrays exceed restart step -> remove excess
+            # previous run was interrupted
+            # if output/restore fields exceed restart step; remove excess
             for key in ["uframe", "sigma", "T", "S", "A"]:
                 res[key].resize((start,))
             if "step" in restore:
-                n = np.argmax(restore["step"][...] == start - 1) + 1
+                n = np.sum(restore["step"][...] <= start)
                 for key in ["uframe", "state", "step"]:
                     restore[key].resize((n,))
                 for key in ["epsp", "sigma", "sigmay"]:
@@ -309,7 +341,7 @@ def EnsembleInfo(cli_args=None):
                     u0 = _norm_uframe(file)
                     output["/norm/uframe"] = u0
                     output["/norm/sigma"] = 1.0
-                    hist = enstat.histogram(bin_edges=np.linspace(0, 3, 2001))
+                    pdfx = enstat.histogram(bin_edges=np.linspace(0, 3, 2001), bound_error="norm")
 
                 if m_name not in file:
                     assert not any(m in file for m in m_exclude), "Wrong file type"
@@ -337,17 +369,14 @@ def EnsembleInfo(cli_args=None):
                 plastic["T"] += res["T"][i + 1 : end : 2].tolist()
 
                 if "sigma" in file[m_name]["restore"]:
-                    res = file[m_name]["restore"]
-                    hist += (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
+                    pdfx += Preparation.get_x(file, file[m_name]["restore"]).ravel()
 
         for key in elastic:
             output["/elastic/" + key] = elastic[key]
         for key in plastic:
             output["/plastic/" + key] = plastic[key]
 
-        res = output.create_group("hist_x")
-        res["bin_edges"] = hist.bin_edges
-        res["count"] = hist.count
+        Preparation.store_histogram(output.create_group("hist_x"), pdfx)
 
 
 def Plot(cli_args=None):
@@ -380,11 +409,9 @@ def Plot(cli_args=None):
     with h5py.File(args.file) as file:
         i = _steady_state(file)
         res = file[m_name]
-        S = file["/AQS/S"][i:].tolist()
-        if "/AQS/restore/sigma" in file:
-            sigma = file["/AQS/restore/sigma"][...]
-            sigmay = file["/AQS/restore/sigmay"][...]
-            x = sigmay - np.abs(sigma)
+        S = res["S"][i:].tolist()
+        if "restore" in res:
+            x = Preparation.get_x(file, res["restore"])
         else:
             x = None
         uframe = res["uframe"][...] / _norm_uframe(file)
@@ -404,10 +431,10 @@ def Plot(cli_args=None):
 
     ax = axes[1]
     if len(S) > 0:
-        hist = enstat.histogram.from_data(S, bins=100, mode="log")
-        ax.plot(hist.x, hist.p)
-        keep = np.logical_and(hist.x > 1e1, hist.x < 1e5)
-        gplt.fit_powerlaw(hist.x[keep], hist.p[keep], axis=ax, auto_fmt="S")
+        pdfs = enstat.histogram.from_data(S, bins=100, mode="log")
+        ax.plot(pdfs.x, pdfs.p)
+        keep = np.logical_and(pdfs.x > 1e1, pdfs.x < 1e5)
+        gplt.fit_powerlaw(pdfs.x[keep], pdfs.p[keep], axis=ax, auto_fmt="S")
         ax.legend()
     ax.set_xscale("log")
     ax.set_yscale("log")
@@ -416,8 +443,8 @@ def Plot(cli_args=None):
 
     ax = axes[2]
     if x is not None:
-        hist = enstat.histogram.from_data(x, bins=100, mode="log")
-        ax.plot(hist.x, hist.p)
+        pdfx = enstat.histogram.from_data(x, bins=100, mode="log")
+        ax.plot(pdfx.x, pdfx.p)
     ax.set_xlabel(r"$x$")
     ax.set_ylabel(r"$P(x)$")
 

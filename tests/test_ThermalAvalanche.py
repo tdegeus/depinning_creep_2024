@@ -39,7 +39,7 @@ class MyTests(unittest.TestCase):
         )
         Preparation.Run(["--dev", "id=0000.h5"])
         Thermal.BranchPreparation(
-            ["--dev", "id=0000.h5", "id=0000_sim.h5", "--sigmay", 1.0, 0.3, "--temperature", 0.1]
+            ["--dev", "id=0000.h5", "id=0000_sim.h5", "--sigmay", 0.0, 1.0, "--temperature", 0.1]
         )
         Thermal.Run(["--dev", "-n", 6, "id=0000_sim.h5"])
         ThermalAvalanche.BranchThermal(["--dev", "id=0000_sim.h5", "id=0000_ava.h5"])

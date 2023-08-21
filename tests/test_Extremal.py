@@ -39,8 +39,8 @@ class MyTests(unittest.TestCase):
             ["--dev", "-n", 1, "--interactions", "monotonic-shortrange", "--shape", 10, 10, "."]
         )
         Preparation.Run(["--dev", "id=0000.h5"])
-        Extremal.BranchPreparation(["--dev", "id=0000.h5", "id=0000_sim.h5", "--sigmay", 1.0, 0.3])
-        Extremal.BranchPreparation(["--dev", "id=0000.h5", "id=0000_res.h5", "--sigmay", 1.0, 0.3])
+        Extremal.BranchPreparation(["--dev", "id=0000.h5", "id=0000_sim.h5", "--sigmay", 0.0, 1.0])
+        Extremal.BranchPreparation(["--dev", "id=0000.h5", "id=0000_res.h5", "--sigmay", 0.0, 1.0])
         Extremal.Run(["--dev", "-n", 6, "id=0000_sim.h5"])
         for _ in range(3):
             Extremal.Run(["--dev", "-n", 2, "id=0000_res.h5"])

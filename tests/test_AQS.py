@@ -40,11 +40,11 @@ class MyTests(unittest.TestCase):
         )
         Preparation.Run(["--dev", "id=0000.h5"])
         Preparation.VerifyData(["--dev", "id=0000.h5"])
-        AQS.BranchPreparation(["--dev", "id=0000.h5", "id=0000_sim.h5", "--sigmay", 1.0, 0.3])
-        AQS.BranchPreparation(["--dev", "id=0000.h5", "id=0000_res.h5", "--sigmay", 1.0, 0.3])
-        AQS.Run(["--dev", "-n", 60, "id=0000_sim.h5"])
-        for _ in range(6):
-            AQS.Run(["--dev", "-n", 10, "id=0000_res.h5"])
+        AQS.BranchPreparation(["--dev", "id=0000.h5", "id=0000_sim.h5", "--sigmay", 0.0, 1.0])
+        AQS.BranchPreparation(["--dev", "id=0000.h5", "id=0000_res.h5", "--sigmay", 0.0, 1.0])
+        AQS.Run(["--dev", "-n", 200, "id=0000_sim.h5"])
+        for _ in range(5):
+            AQS.Run(["--dev", "-n", 40, "id=0000_res.h5"])
 
         with h5py.File("id=0000_sim.h5") as a, h5py.File("id=0000_res.h5") as b:
             aa = a["AQS"]
@@ -52,8 +52,8 @@ class MyTests(unittest.TestCase):
             for key in ["uframe", "sigma", "S", "A", "T"]:
                 self.assertTrue(np.allclose(aa[key][...], bb[key][...]))
 
-            aa = a["AQS/restore"]
-            bb = b["AQS/restore"]
+            aa = a["/AQS/restore"]
+            bb = b["/AQS/restore"]
             for key in ["epsp", "sigma", "sigmay", "uframe", "state", "step"]:
                 self.assertTrue(np.allclose(aa[key][...], bb[key][...]))
 

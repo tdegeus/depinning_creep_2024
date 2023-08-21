@@ -44,6 +44,36 @@ class SystemStressControl(epm.SystemStressControl):
         self.sigmabar = param["sigmabar"][...]
 
 
+class DepinningSystemStressControl(epm.Depinning.SystemStressControl):
+    def __init__(self, file: h5py.File):
+        param = file["param"]
+        restart = file["restart"]
+        assert np.isclose(param["sigmay"][0], 0)
+
+        epm.Depinning.SystemStressControl.__init__(
+            self,
+            *Preparation.propagator(param),
+            sigmay_std=np.ones(param["shape"][...]) * param["sigmay"][1],
+            seed=restart["state"].attrs["seed"],
+            alpha=param["alpha"][...],
+            random_stress=False,
+        )
+
+        self.epsp = restart["epsp"][...]
+        self.sigma = restart["sigma"][...]
+        self.sigmay = restart["sigmay"][...]
+        self.t = restart["t"][...]
+        self.state = restart["state"][...]
+        self.sigmabar = param["sigmabar"][...]
+
+
+def allocate_system(file: h5py.File):
+    if Preparation.get_dynamics(file):
+        return DepinningSystemStressControl(file)
+    else:
+        return SystemStressControl(file)
+
+
 def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
     """
     Upgrade data to the current version.
@@ -80,11 +110,11 @@ def BranchPreparation(cli_args=None):
     r"""
     Branch from prepared stress state and add parameters.
 
-    1.  Copy ``\param``.
-        Add ``\param\sigmabar``, ``\param\sigmay``.
+    1.  Copy ``/param``.
+        Add ``/param/sigmabar``, ``/param/sigmay``.
 
-    2.  Copy ``\init`` to ``\restart``.
-        Add ``\restart\epsp``, ``\restart\t``.
+    2.  Copy ``/init`` to ``/restart``.
+        Add ``/restart/epsp``, ``/restart/t``.
     """
 
     class MyFmt(
@@ -101,7 +131,7 @@ def BranchPreparation(cli_args=None):
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("--sigmabar", type=float, default=0.3, help="Stress")
     parser.add_argument(
-        "--sigmay", type=float, nargs=2, default=[1.0, 0.3], help="Mean and std of sigmay"
+        "--sigmay", type=float, nargs=2, required=True, help="Mean and std of sigmay"
     )
     parser.add_argument("input", type=pathlib.Path, help="Input file (read-only)")
     parser.add_argument("output", type=pathlib.Path, help="Output file (overwritten)")
@@ -153,7 +183,7 @@ def Run(cli_args=None):
 
     with h5py.File(args.file, "a") as file:
         tools.create_check_meta(file, f"/meta/{m_name}/{funcname}", dev=args.develop)
-        system = SystemStressControl(file)
+        system = allocate_system(file)
         restart = file["restart"]
 
         if m_name not in file:
@@ -216,26 +246,16 @@ def EnsembleInfo(cli_args=None):
             with h5py.File(f) as file:
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
-                    alpha = file["param"]["alpha"][...]
-                    dE = enstat.scalar()
-                    pdfx = enstat.histogram(bin_edges=np.linspace(0, 3, 2001))
+                    pdfx = enstat.histogram(bin_edges=np.linspace(0, 3, 2001), bound_error="norm")
 
                 if m_name not in file:
                     assert not any(m in file for m in m_exclude), "Wrong file type"
                     continue
 
-                res = file[m_name]
-                x = (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
-                sorter = np.argsort(x)
-                dE += x[sorter[1]] ** alpha - x[sorter[0]] ** alpha
-                pdfx += x
+                pdfx += Preparation.get_x(file, file[m_name]).ravel()
 
         output["files"] = sorted([f.name for f in args.files])
-        output["/dE/first"] = dE.first
-        output["/dE/second"] = dE.second
-        output["/dE/norm"] = dE.norm
-        output["/hist_x/bin_edges"] = pdfx.bin_edges
-        output["/hist_x/count"] = pdfx.count
+        Preparation.store_histogram(output.create_group("hist_x"), pdfx)
 
 
 def EnsembleHeightHeight(cli_args=None):

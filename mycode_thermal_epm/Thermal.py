@@ -52,6 +52,37 @@ class SystemThermalStressControl(epm.SystemThermalStressControl):
         self.temperature = param["temperature"][...]
 
 
+class DepinningSystemThermalStressControl(epm.Depinning.SystemThermalStressControl):
+    def __init__(self, file: h5py.File):
+        param = file["param"]
+        restart = file["restart"]
+        assert np.isclose(param["sigmay"][0], 0)
+
+        epm.Depinning.SystemThermalStressControl.__init__(
+            self,
+            *Preparation.propagator(param),
+            sigmay_std=np.ones(param["shape"][...]) * param["sigmay"][1],
+            seed=restart["state"].attrs["seed"],
+            alpha=param["alpha"][...],
+            random_stress=False,
+        )
+
+        self.epsp = restart["epsp"][...]
+        self.sigma = restart["sigma"][...]
+        self.sigmay = restart["sigmay"][...]
+        self.t = restart["t"][...]
+        self.state = restart["state"][...]
+        self.sigmabar = param["sigmabar"][...]
+        self.temperature = param["temperature"][...]
+
+
+def allocate_system(file: h5py.File):
+    if Preparation.get_dynamics(file):
+        return DepinningSystemThermalStressControl(file)
+    else:
+        return SystemThermalStressControl(file)
+
+
 def _upgrade_data_v1_to_v2(src: h5py.File, dst: h5py.File):
     """
     -   Convert ``A`` to ``idx``, add ``idx_ignore`` for those data.
@@ -202,11 +233,11 @@ def BranchPreparation(cli_args=None):
     r"""
     Branch from prepared stress state and add parameters.
 
-    1.  Copy ``\param``.
-        Add ``\param\sigmabar``, ``\param\temperature``, ``\param\sigmay``.
+    1.  Copy ``/param``.
+        Add ``/param/sigmabar``, ``/param/temperature``, ``/param/sigmay``.
 
-    2.  Copy ``\init`` to ``\restart``.
-        Add ``\restart\epsp``, ``\restart\t``.
+    2.  Copy ``/init`` to ``/restart``.
+        Add ``/restart/epsp``, ``/restart/t``.
     """
 
     class MyFmt(
@@ -224,7 +255,7 @@ def BranchPreparation(cli_args=None):
     parser.add_argument("--sigmabar", type=float, default=0.3, help="Stress")
     parser.add_argument("--temperature", type=float, required=True, help="Temperature")
     parser.add_argument(
-        "--sigmay", type=float, nargs=2, default=[1.0, 0.3], help="Mean and std of sigmay"
+        "--sigmay", type=float, nargs=2, required=True, help="Mean and std of sigmay"
     )
     parser.add_argument("input", type=pathlib.Path, help="Input file (read-only)")
     parser.add_argument("output", type=pathlib.Path, help="Output file (overwritten)")
@@ -286,7 +317,7 @@ def Run(cli_args=None):
     with h5py.File(args.file, "a") as file:
         assert Preparation.get_data_version(file) == data_version
         tools.create_check_meta(file, f"/meta/{m_name}/{funcname}", dev=args.develop)
-        system = SystemThermalStressControl(file)
+        system = allocate_system(file)
         if args.ninc is None:
             args.ninc = 20 * system.size
         else:
@@ -380,13 +411,12 @@ def EnsembleInfo(cli_args=None):
     with h5py.File(args.output, "w") as output:
         tools.create_check_meta(output, f"/meta/{m_name}/{funcname}", dev=args.develop)
         output["files"] = sorted([f.name for f in args.files])
+        output.create_group("hist_x")
 
         for ifile, f in enumerate(tqdm.tqdm(args.files)):
             with h5py.File(f) as file:
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
-                    alpha = file["param"]["alpha"][...]
-                    dE = enstat.scalar()
                     pdfx = enstat.histogram(
                         bin_edges=np.linspace(0, 3, args.nbin_x), bound_error="ignore"
                     )
@@ -403,10 +433,7 @@ def EnsembleInfo(cli_args=None):
                     continue
 
                 res = file[m_name]
-                x = (res["sigmay"][...] - np.abs(res["sigma"][...])).ravel()
-                sorter = np.argsort(x)
-                dE += x[sorter[1]] ** alpha - x[sorter[0]] ** alpha
-                pdfx += x
+                pdfx += Preparation.get_x(file, file[m_name]).ravel()
                 _, n = _check_data(file, error=False)
                 for i in range(n):
                     ti = res["T"][i, ...]
@@ -416,11 +443,7 @@ def EnsembleInfo(cli_args=None):
                         continue
                     binned.add_sample(ti, si, si**2, ai, ai**2, np.sqrt(ai))
 
-            storage.dump_overwrite(output, "/dE/first", dE.first)
-            storage.dump_overwrite(output, "/dE/second", dE.second)
-            storage.dump_overwrite(output, "/dE/norm", dE.norm)
-            storage.dump_overwrite(output, "/hist_x/bin_edges", pdfx.bin_edges)
-            storage.dump_overwrite(output, "/hist_x/count", pdfx.count)
+            Preparation.store_histogram(output["hist_x"], pdfx)
             storage.dump_overwrite(
                 output, "chi4_S", N * (binned["Ssq"].mean() - binned["S"].mean() ** 2)
             )
@@ -510,7 +533,9 @@ def EnsembleHeightHeight(cli_args=None, myname: str = m_name):
 def EnsembleStructure(cli_args=None, myname: str = m_name):
     """
     Extract the structure factor at snapshots.
-    See: https://doi.org/10.1103/PhysRevLett.118.147208
+    See:
+    https://doi.org/10.1103/PhysRevB.74.140201
+    https://doi.org/10.1103/PhysRevLett.118.147208
     """
 
     class MyFmt(
