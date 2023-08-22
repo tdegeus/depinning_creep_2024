@@ -274,7 +274,7 @@ def EnsembleStructure(cli_args=None):
 
 def Plot(cli_args=None):
     """
-    Basic of the ensemble.
+    Basic plot of a realisation or of the ensemble.
     """
 
     import GooseMPL as gplt  # noqa: F401
@@ -300,15 +300,30 @@ def Plot(cli_args=None):
     assert args.file.exists()
 
     with h5py.File(args.file) as file:
-        x = file["hist_x"]["x"][...]
-        p = file["hist_x"]["p"][...]
-        xc = file["param"]["sigmay"][0] - file["param"]["sigmabar"][...]
+        realisation = "hist_x" not in file
 
-    fig, ax = gplt.subplots()
-    ax.plot(x, p)
-    ax.axvline(xc, color="r", ls="-", label=r"$\langle \sigma_y \rangle - \bar{\sigma}$")
-    ax.set_xlabel(r"$x$")
-    ax.set_ylabel(r"$P(x)$")
-    ax.legend()
-    plt.show()
-    plt.close(fig)
+    if realisation:
+        with h5py.File(args.file) as file:
+            res = file[m_name]
+            u = res["epsp"][-1, ...] + res["sigma"][-1, ...]
+
+        fig, ax = gplt.subplots()
+        ax.imshow(u)
+        plt.show()
+
+    else:
+        with h5py.File(args.file) as file:
+            pdfx = enstat.histogram.restore(
+                bin_edges=file["hist_x"]["bin_edges"][...],
+                count=file["hist_x"]["count"][...],
+                count_left=file["hist_x"]["count_left"][...],
+                count_right=file["hist_x"]["count_right"][...],
+            )
+
+        fig, ax = gplt.subplots()
+        ax.plot(pdfx.x, pdfx.p)
+        ax.set_xlabel(r"$x$")
+        ax.set_ylabel(r"$P(x)$")
+        ax.legend()
+        plt.show()
+        plt.close(fig)
