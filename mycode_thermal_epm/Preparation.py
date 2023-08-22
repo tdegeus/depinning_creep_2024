@@ -338,12 +338,13 @@ def Generate(cli_args=None):
             init.create_dataset("sigma", shape=args.shape, dtype=np.float64)
 
             init.create_dataset("sigmay", shape=args.shape, dtype=np.float64)
-            init["sigmay"].attrs["std"] = 0.3
 
             if args.dynamics == "depinning":
                 init["sigmay"].attrs["mean"] = 0.0
+                init["sigmay"].attrs["std"] = 1.0
             else:
                 init["sigmay"].attrs["mean"] = 1.0
+                init["sigmay"].attrs["std"] = 0.3
 
             init.create_dataset("state", shape=[], dtype=np.uint64)
             init["state"].attrs["seed"] = seed
