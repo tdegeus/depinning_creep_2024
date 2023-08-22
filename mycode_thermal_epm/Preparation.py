@@ -369,11 +369,8 @@ def Generate(cli_args=None):
         base = args.outdir / ".." / name
         base.mkdir(parents=True, exist_ok=True)
 
-        exec = f"{name}_BranchPreparation"
-        commands = [
-            f"{exec} --sigmay {sigmay_mean:.1f} {sigmay_std:.1f} ../{args.outdir.name}/{f} {f}"
-            for f in files
-        ]
+        exec = f"{name}_BranchPreparation --sigmay {sigmay_mean:.1f} {sigmay_std:.1f}"
+        commands = [f"{exec} ../{args.outdir.name}/{f} {f}" for f in files]
         shelephant.yaml.dump(base / "commands_branch.yaml", commands, force=True)
 
         exec = f"{name}_Run"
@@ -416,11 +413,8 @@ def Generate(cli_args=None):
         base = args.outdir / ".." / name / key
         base.mkdir(parents=True, exist_ok=True)
 
-        exec = f"{name}_BranchPreparation"
-        commands = [
-            f"{exec} --sigmay {sigmay_mean:.1f} {sigmay_std:.1f} ../../{args.outdir.name}/{f} {f} --temperature {temp}"
-            for f in files
-        ]
+        exec = f"{name}_BranchPreparation --sigmay {sigmay_mean:.1f} {sigmay_std:.1f}"
+        commands = [f"{exec} ../../{args.outdir.name}/{f} {f} --temperature {temp}" for f in files]
         shelephant.yaml.dump(base / "commands_branch.yaml", commands, force=True)
 
         exec = f"{name}_Run"
