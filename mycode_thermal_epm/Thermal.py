@@ -632,36 +632,50 @@ def Plot(cli_args=None):
     assert args.file.exists()
 
     with h5py.File(args.file) as file:
-        x = file["hist_x"]["x"][...]
-        p = file["hist_x"]["p"][...]
-        xc = file["param"]["sigmay"][0] - file["param"]["sigmabar"][...]
+        realisation = "hist_x" not in file
 
-        chi4_S = file["chi4_S"][...]
-        chi4_A = file["chi4_A"][...]
-        t = file["t"][...]
+    if realisation:
+        with h5py.File(args.file) as file:
+            res = file[m_name]
+            u = res["epsp"][-1, ...] + res["sigma"][-1, ...]
 
-    fig, axes = gplt.subplots(ncols=3)
+        fig, ax = gplt.subplots()
+        ax.imshow(u)
+        plt.show()
 
-    ax = axes[0]
-    ax.plot(x, p)
-    ax.axvline(xc, color="r", ls="-", label=r"$\langle \sigma_y \rangle - \bar{\sigma}$")
-    ax.set_xlabel(r"$x$")
-    ax.set_ylabel(r"$P(x)$")
-    ax.legend()
+    else:
+        with h5py.File(args.file) as file:
+            pdfx = enstat.histogram.restore(
+                bin_edges=file["hist_x"]["bin_edges"][...],
+                count=file["hist_x"]["count"][...],
+                count_left=file["hist_x"]["count_left"][...],
+                count_right=file["hist_x"]["count_right"][...],
+            )
 
-    ax = axes[1]
-    ax.plot(t, chi4_S, label=r"$\chi_4^S$")
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_xlabel(r"$t$")
-    ax.set_ylabel(r"$\chi_4^S$")
+            chi4_S = file["chi4_S"][...]
+            chi4_A = file["chi4_A"][...]
+            t = file["t"][...]
 
-    ax = axes[2]
-    ax.plot(t, chi4_A, label=r"$\chi_4^A$")
-    ax.set_xscale("log")
-    ax.set_yscale("log")
-    ax.set_xlabel(r"$t$")
-    ax.set_ylabel(r"$\chi_4^A$")
+        fig, axes = gplt.subplots(ncols=3)
 
-    plt.show()
-    plt.close(fig)
+        ax = axes[0]
+        ax.plot(pdfx.x, pdfx.p)
+        ax.set_xlabel(r"$x$")
+        ax.set_ylabel(r"$P(x)$")
+
+        ax = axes[1]
+        ax.plot(t, chi4_S, label=r"$\chi_4^S$")
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel(r"$t$")
+        ax.set_ylabel(r"$\chi_4^S$")
+
+        ax = axes[2]
+        ax.plot(t, chi4_A, label=r"$\chi_4^A$")
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel(r"$t$")
+        ax.set_ylabel(r"$\chi_4^A$")
+
+        plt.show()
+        plt.close(fig)
