@@ -383,6 +383,18 @@ def Generate(cli_args=None):
             commands = [f"{exec} {f}" for f in files]
         shelephant.yaml.dump(base / "commands_run.yaml", commands, force=True)
 
+    for name in ["ExtremalAvalanche"]:
+        base = args.outdir / ".." / name
+        base.mkdir(parents=True, exist_ok=True)
+
+        exec = f"{name}_BranchExtremal"
+        commands = [f"{exec} ../Extremal/{f} {f}" for f in files]
+        shelephant.yaml.dump(base / "commands_branch.yaml", commands, force=True)
+
+        exec = f"{name}_Run"
+        commands = [f"{exec} -n 300 {f}" for f in files]
+        shelephant.yaml.dump(base / "commands_run.yaml", commands, force=True)
+
     name = "Thermal"
     temperatures = {
         "temperature=0,002": 0.002,
