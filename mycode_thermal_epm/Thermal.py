@@ -570,24 +570,7 @@ def EnsembleStructure(cli_args=None, myname: str = m_name):
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
                     shape = file["param"]["shape"][...]
-                    L = int(shape[0])
-                    assert np.all(np.equal(shape, L))
-                    assert L % 2 == 0
-                    q = np.fft.fftfreq(L)
-                    upr = int(L / 2)
-                    assert np.all(np.diff(q[1:upr]) > 0)
-                    assert np.all(q[1:upr] + np.flip(q[upr + 1 :]) == 0)
-                    qnorm = []
-                    for m in range(0, upr):
-                        for n in range(0, upr):
-                            qnorm.append(np.sqrt(q[m] ** 2 + q[n] ** 2))
-                    qcheck = []
-                    for m in range(0, upr):
-                        qcheck.append(np.sqrt(q[m] ** 2 + q[0] ** 2))
-                        qcheck += np.sqrt(q[m] ** 2 + q[1:upr] ** 2).tolist()
-                    assert np.allclose(qnorm, qcheck)
-                    output["q"] = qnorm
-                    data = {i: enstat.static(shape=[len(qnorm)]) for i in ["eps", "epsp", "epse"]}
+                    data = {i: eye.Structure(shape=shape) for i in ["eps", "epsp", "epse"]}
 
                 if f"/{myname}/epsp" not in file:
                     continue
@@ -598,21 +581,11 @@ def EnsembleStructure(cli_args=None, myname: str = m_name):
                     entry = {"epsp": res["epsp"][i, ...], "epse": res["sigma"][i, ...]}
                     entry["eps"] = entry["epsp"] + entry["epse"]
                     for key in entry:
-                        e = entry[key]
-                        ehat = np.fft.fft2(e) / e.size
-                        datum = np.zeros(len(qnorm), dtype=np.float64)
-                        for m in range(0, upr):
-                            datum[m * upr] = 2 * np.real(ehat[m, 0] * ehat[-m, 0])
-                            datum[m * upr + 1 : (m + 1) * upr] = 2 * np.real(
-                                ehat[m, 1:upr] * np.flip(ehat[-m, upr + 1 :])
-                            )
-                        data[key] += datum
+                        data[key] += entry[key]
 
             for key in data:
-                datum = data[key]
-                storage.dump_overwrite(output, f"/{key}/first", datum.first)
-                storage.dump_overwrite(output, f"/{key}/second", datum.second)
-                storage.dump_overwrite(output, f"/{key}/norm", datum.norm)
+                for name, value in data[key]:
+                    storage.dump_overwrite(output, f"/{key}/{name}", value)
             output.flush()
 
 

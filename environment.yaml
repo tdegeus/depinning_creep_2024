@@ -16,7 +16,7 @@ dependencies:
 - pre-commit
 - python
 - python-cppcolormap
-- python-gooseeye
+- python-gooseeye >=0.7.1
 - setuptools_scm
 - shelephant
 - tqdm
