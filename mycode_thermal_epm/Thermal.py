@@ -756,7 +756,7 @@ def EnsembleDynamicStructure(cli_args=None, myname=m_name):
         for im in range(len(t_measure)):
             group = out_structure.create_group(f"{im:d}")
             for key, value in structure[im]:
-                group[key] = value
+                group[key] = value[:, 0]
             group = out_time.create_group(f"{im:d}")
             for key, value in t_mean[im]:
                 group[key] = value
