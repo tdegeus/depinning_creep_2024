@@ -22,6 +22,7 @@ from .Preparation import data_version
 f_info = "EnsembleInfo.h5"
 f_height = "EnsembleHeightHeight.h5"
 f_structure = "EnsembleStructure.h5"
+f_length = "EnsembleDynamicStructure.h5"
 m_name = "Thermal"
 m_avalanche = "Avalanche"
 m_exclude = ["AQS", "Extremal", "ExtremalAvalanche"]
@@ -664,3 +665,98 @@ def Plot(cli_args=None):
 
         plt.show()
         plt.close(fig)
+
+
+def EnsembleDynamicStructure(cli_args=None, myname=m_name):
+    """
+    Basic interpretation of the ensemble.
+    """
+
+    class MyFmt(
+        argparse.RawDescriptionHelpFormatter,
+        argparse.ArgumentDefaultsHelpFormatter,
+        argparse.MetavarTypeHelpFormatter,
+    ):
+        pass
+
+    funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
+
+    parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
+    parser.add_argument("-v", "--version", action="version", version=version)
+    parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
+    parser.add_argument("-o", "--output", type=pathlib.Path, help="Output file", default=f_length)
+    parser.add_argument("--bins", type=int, default=100, help="#bins for tau")
+    parser.add_argument("info", type=pathlib.Path, help="EnsembleInfo")
+
+    args = tools._parse(parser, cli_args)
+    assert args.info.exists()
+    tools._check_overwrite_file(args.output, args.force)
+
+    with h5py.File(args.info) as file:
+        files = file["files"].asstr()[...]
+        shape = file["/param/shape"][...]
+        t = enstat.static.restore(
+            first=file["/restore/t/first"][...],
+            norm=file["/restore/t/norm"][...],
+        )
+        A = enstat.static.restore(
+            first=file["/restore/A/first"][...],
+            norm=file["/restore/A/norm"][...],
+        )
+
+        t.squash(4)
+        A.squash(4)
+        phi = 1 - A.mean()
+        tau = t.mean()
+        t_measure = np.linspace(tau[np.argmax(phi < 0.9)], tau[np.argmax(phi < 0.1)], args.bins)
+
+    root = args.info.parent
+    files = [root / f for f in files]
+    assert all([f.exists() for f in files])
+
+    structure = [eye.Structure(shape=shape) for _ in t_measure]
+    t_mean = [enstat.scalar() for _ in t_measure]
+
+    with h5py.File(args.output, "w") as output:
+        tools.create_check_meta(output, f"/meta/{myname}/{funcname}", dev=args.develop)
+        output["/settings/time"] = t_measure
+        out_structure = output.create_group("data").create_group("structure")
+        out_time = output["data"].create_group("time")
+
+        for ifile, f in enumerate(tqdm.tqdm(files)):
+            with h5py.File(f) as file:
+                if ifile == 0:
+                    g5.copy(file, output, ["/param"])
+
+                if myname not in file:
+                    assert not any(m in file for m in m_exclude), "Wrong file type"
+                    continue
+
+                res = file[myname]
+
+                _, n = _check_data(file, error=False)
+                if "idx_ignore" in res:
+                    idx_ignore = list(res["idx_ignore"][...])
+                else:
+                    idx_ignore = []
+
+                for i in range(n):
+                    if i in idx_ignore:
+                        continue
+                    t = res["T"][i, ...]
+                    idx = res["idx"][i, ...].astype(int)
+                    for im, tm in enumerate(t_measure):
+                        j = np.argmin(np.abs(t - tm))
+                        s = np.bincount(idx[:j], minlength=np.prod(shape)).reshape(shape)
+                        structure[im] += s
+                        t_mean[im] += t[j]
+
+        for im in range(len(t_measure)):
+            group = out_structure.create_group(f"{im:d}")
+            for key, value in structure[im]:
+                group[key] = value
+            group = out_time.create_group(f"{im:d}")
+            for key, value in t_mean[im]:
+                group[key] = value

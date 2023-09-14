@@ -59,6 +59,7 @@ class MyTests(unittest.TestCase):
         Thermal.EnsembleInfo(["--dev", "id=0000_sim.h5"])
         Thermal.EnsembleHeightHeight(["--dev", "id=0000_sim.h5"])
         Thermal.EnsembleStructure(["--dev", "id=0000_sim.h5"])
+        Thermal.EnsembleDynamicStructure(["--dev", "EnsembleInfo.h5"])
 
 
 if __name__ == "__main__":
