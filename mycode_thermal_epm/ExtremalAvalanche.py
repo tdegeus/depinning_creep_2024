@@ -244,7 +244,7 @@ def EnsembleInfo(cli_args=None, myname=m_name):
                 xmin = res["xmin"][...]
                 x_hist += xmin
                 for i, x0 in enumerate(tqdm.tqdm(x0_list)):
-                    S, A = epm.segment_avalanche(x0 >= xmin, idx, first=False, last=False)
+                    S, A, _ = epm.segment_avalanche(x0 >= xmin, idx, first=False, last=False)
                     ell = np.sqrt(A)
                     A_hist[i] += A
                     S_hist[i] += S

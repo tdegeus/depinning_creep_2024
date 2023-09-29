@@ -7,7 +7,7 @@ classifiers = ["License :: OSI Approved :: MIT License"]
 dependencies = [
   "enstat >=0.9.6",
   "GooseEYE >=0.7.1",
-  "GooseEPM >=0.7.0",
+  "GooseEPM >=0.8.0",
   "GooseHDF5 >=0.23.0",
   "h5py",
   "numpy",
