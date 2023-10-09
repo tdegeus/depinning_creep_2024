@@ -29,59 +29,16 @@ m_exclude = ["AQS", "Extremal", "ExtremalAvalanche"]
 m_dummy_int = int(12e12)
 
 
-class SystemThermalStressControl(epm.SystemThermalStressControl):
-    def __init__(self, file: h5py.File):
-        param = file["param"]
-        restart = file["restart"]
-
-        epm.SystemThermalStressControl.__init__(
-            self,
-            *Preparation.propagator(param),
-            sigmay_mean=np.ones(param["shape"][...]) * param["sigmay"][0],
-            sigmay_std=np.ones(param["shape"][...]) * param["sigmay"][1],
-            seed=restart["state"].attrs["seed"],
-            alpha=param["alpha"][...],
-            random_stress=False,
-        )
-
-        self.epsp = restart["epsp"][...]
-        self.sigma = restart["sigma"][...]
-        self.sigmay = restart["sigmay"][...]
-        self.t = restart["t"][...]
-        self.state = restart["state"][...]
-        self.sigmabar = param["sigmabar"][...]
-        self.temperature = param["temperature"][...]
-
-
-class DepinningSystemThermalStressControl(epm.Depinning.SystemThermalStressControl):
-    def __init__(self, file: h5py.File):
-        param = file["param"]
-        restart = file["restart"]
-        assert np.isclose(param["sigmay"][0], 0)
-
-        epm.Depinning.SystemThermalStressControl.__init__(
-            self,
-            *Preparation.propagator(param),
-            sigmay_std=np.ones(param["shape"][...]) * param["sigmay"][1],
-            seed=restart["state"].attrs["seed"],
-            alpha=param["alpha"][...],
-            random_stress=False,
-        )
-
-        self.epsp = restart["epsp"][...]
-        self.sigma = restart["sigma"][...]
-        self.sigmay = restart["sigmay"][...]
-        self.t = restart["t"][...]
-        self.state = restart["state"][...]
-        self.sigmabar = param["sigmabar"][...]
-        self.temperature = param["temperature"][...]
-
-
-def allocate_system(file: h5py.File):
-    if Preparation.get_dynamics(file):
-        return DepinningSystemThermalStressControl(file)
-    else:
-        return SystemThermalStressControl(file)
+def allocate_System(file: h5py.File):
+    param = file["param"]
+    restart = file["restart"]
+    opts = Preparation.default_options(file)
+    opts["thermal"] = True
+    system = epm.allocate_System(**opts)
+    system = Preparation.load_restart(restart, system)
+    system.sigmabar = param["sigmabar"][...]
+    system.temperature = param["temperature"][...]
+    return system
 
 
 def _upgrade_data_v1_to_v2(src: h5py.File, dst: h5py.File):
@@ -318,7 +275,7 @@ def Run(cli_args=None):
     with h5py.File(args.file, "a") as file:
         assert Preparation.get_data_version(file) == data_version
         tools.create_check_meta(file, f"/meta/{m_name}/{funcname}", dev=args.develop)
-        system = allocate_system(file)
+        system = allocate_System(file)
         if args.ninc is None:
             args.ninc = 20 * system.size
         else:
@@ -349,7 +306,7 @@ def Run(cli_args=None):
             with g5.ExtendableList(res, "t", np.float64) as dset:
                 dset.append(system.t)
 
-            Preparation.overwrite_restart(file["restart"], system)
+            Preparation.dump_restart(file["restart"], system)
 
             if args.ninc > 0:
                 t0 = float(system.t)
@@ -360,7 +317,7 @@ def Run(cli_args=None):
                 with g5.ExtendableSlice(res, "T", [args.ninc], np.float64) as dset:
                     dset += measurement.t - t0
 
-            Preparation.overwrite_restart(file["restart"], system)
+            Preparation.dump_restart(file["restart"], system)
 
 
 def EnsembleInfo(cli_args=None):
