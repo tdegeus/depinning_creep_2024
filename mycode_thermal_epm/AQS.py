@@ -365,7 +365,7 @@ def Plot(cli_args=None):
         i = _steady_state(file)
         res = file[m_name]
         S = res["S"][i:].tolist()
-        if "restore" in res:
+        if "/restore/sigma" in res:
             x = Preparation.get_x(file, res["restore"])
         else:
             x = None
