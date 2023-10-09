@@ -20,61 +20,16 @@ f_info = "EnsembleInfo.h5"
 m_name = "AQS"
 m_exclude = ["Extremal", "ExtremalAvalanche", "Thermal"]
 
-
-class SystemSpringLoading(epm.SystemSpringLoading):
-    def __init__(self, file: h5py.File):
-        param = file["param"]
-        restart = file["restart"]
-
-        epm.SystemSpringLoading.__init__(
-            self,
-            *Preparation.propagator(param),
-            sigmay_mean=np.ones(param["shape"][...]) * param["sigmay"][0],
-            sigmay_std=np.ones(param["shape"][...]) * param["sigmay"][1],
-            seed=restart["state"].attrs["seed"],
-            alpha=param["alpha"][...],
-            kframe=param["kframe"][...],
-            random_stress=False,
-        )
-
-        self.epsp = restart["epsp"][...]
-        self.sigma = restart["sigma"][...]
-        self.sigmay = restart["sigmay"][...]
-        self.state = restart["state"][...]
-        self.epsframe = restart["uframe"][...]
-        self.step = restart["step"][...]
-
-
-class DepinningSystemSpringLoading(epm.Depinning.SystemSpringLoading):
-    def __init__(self, file: h5py.File):
-        param = file["param"]
-        restart = file["restart"]
-        assert np.isclose(param["sigmay"][0], 0)
-
-        epm.Depinning.SystemSpringLoading.__init__(
-            self,
-            *Preparation.propagator(param),
-            sigmay_std=np.ones(param["shape"][...]) * param["sigmay"][1],
-            seed=restart["state"].attrs["seed"],
-            alpha=param["alpha"][...],
-            kframe=param["kframe"][...],
-            random_stress=False,
-        )
-
-        self.epsp = restart["epsp"][...]
-        self.sigma = restart["sigma"][...]
-        self.sigmay = restart["sigmay"][...]
-        self.state = restart["state"][...]
-        self.epsframe = restart["uframe"][...]
-        self.step = restart["step"][...]
-
-
-def allocate_system(file: h5py.File):
-    if Preparation.get_dynamics(file):
-        return DepinningSystemSpringLoading(file)
-    else:
-        return SystemSpringLoading(file)
-
+def allocate_System(file: h5py.File):
+    param = file["param"]
+    restart = file["restart"]
+    opts = Preparation.default_options(file)
+    opts["loading"] = "spring"
+    opts["kframe"] = param["kframe"][...]
+    system = epm.allocate_System(**opts)
+    system = Preparation.load_restart(restart, system)
+    system.epsframe = restart["uframe"][...]
+    return system
 
 def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
     """
@@ -194,7 +149,7 @@ def Run(cli_args=None):
 
     with h5py.File(args.file, "a") as file:
         tools.create_check_meta(file, f"/meta/{m_name}/{funcname}", dev=args.develop)
-        system = allocate_system(file)
+        system = allocate_System(file)
         restart = file["restart"]
 
         if m_name not in file:
@@ -261,7 +216,7 @@ def Run(cli_args=None):
             # full state
             if step == start + args.nstep - 1 or time.time() - tic > args.backup_interval * 60:
                 tic = time.time()
-                Preparation.overwrite_restart(restart, system)
+                Preparation.dump_restart(restart, system)
                 restart["uframe"][...] = system.epsframe
                 restart["step"][...] = step
                 file.flush()

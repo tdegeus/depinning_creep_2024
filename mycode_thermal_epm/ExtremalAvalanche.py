@@ -129,7 +129,7 @@ def Run(cli_args=None):
 
     with h5py.File(args.file, "a") as file:
         tools.create_check_meta(file, f"/meta/{m_name}/{funcname}", dev=args.develop)
-        system = Extremal.allocate_system(file)
+        system = Extremal.allocate_System(file)
         restart = file["restart"]
         if args.ninc is None:
             args.ninc = args.ninc_size * system.size
@@ -154,7 +154,7 @@ def Run(cli_args=None):
             with g5.ExtendableList(res, "xmin", np.float64) as dset:
                 dset += measurement.x
 
-            Preparation.overwrite_restart(restart, system)
+            Preparation.dump_restart(restart, system)
             restart["nstep"][...] += args.ncache
 
 

@@ -40,6 +40,52 @@ def get_dynamics(file: h5py.File) -> str:
     return "default"
 
 
+def default_options(file: h5py.File) -> dict:
+    """
+    Construct a dictionary with default options for the allocation of a system.
+    :param file: Opened file (read ``/param``).
+    :return: Dictionary with default options.
+    """
+    assert ("restart" in file and "init" not in file) or ("init" in file and "restart" not in file)
+    param = file["param"]
+    init = file["init"] if "init" in file else file["restart"]
+    prop, dist = propagator(param)
+    ret = dict(
+        rules= "default",
+        loading="stress",
+        thermal=False,
+        propagator = prop,
+        distances = dist,
+        alpha=param["alpha"][...],
+        seed=init["state"].attrs["seed"],
+        random_stress=False,
+    )
+
+    if "sigmay" in param:
+        ret["sigmay_std"] = np.ones(param["shape"][...]) * param["sigmay"][1]
+    else:
+        ret["sigmay_std"] = np.ones(param["shape"][...]) * init["sigmay"].attrs["std"]
+
+    if get_dynamics(file) == "depinning":
+        ret["rules"] = "depinning"
+        if "sigmay" in param:
+            assert np.isclose(param["sigmay"][0], 0)
+        else:
+            assert np.isclose(init["sigmay"].attrs["mean"], 0)
+    else:
+        if "sigmay" in param:
+            ret["sigmay_mean"] = np.ones(param["shape"][...]) * param["sigmay"][0]
+        else:
+            ret["sigmay_mean"] = np.ones(param["shape"][...]) * init["sigmay"].attrs["mean"]
+
+    return ret
+
+def allocate_System(file: h5py.File):
+    opts = default_options(file)
+    opts["random_stress"] = True
+    return epm.allocate_System(**opts)
+
+
 def get_x(file: h5py.File, data: h5py.Group) -> np.ndarray:
     """
     Read the distance to yielding.
@@ -216,44 +262,6 @@ def VerifyData(cli_args=None):
             if get_data_version(file) != data_version:
                 ret.append(filename)
     print("\n".join(list(map(str, ret))))
-
-
-class SystemStressControl(epm.SystemStressControl):
-    def __init__(self, file: h5py.File):
-        param = file["param"]
-        init = file["init"]
-        epm.SystemStressControl.__init__(
-            self,
-            *propagator(param),
-            sigmay_mean=np.ones(param["shape"][...]) * init["sigmay"].attrs["mean"],
-            sigmay_std=np.ones(param["shape"][...]) * init["sigmay"].attrs["std"],
-            seed=init["state"].attrs["seed"],
-            alpha=param["alpha"][...],
-            random_stress=True,
-        )
-
-
-class DepinningSystemStressControl(epm.Depinning.SystemStressControl):
-    def __init__(self, file: h5py.File):
-        param = file["param"]
-        init = file["init"]
-        assert np.isclose(init["sigmay"].attrs["mean"], 0)
-
-        epm.Depinning.SystemStressControl.__init__(
-            self,
-            *propagator(param),
-            sigmay_std=np.ones(param["shape"][...]) * init["sigmay"].attrs["std"],
-            seed=init["state"].attrs["seed"],
-            alpha=param["alpha"][...],
-            random_stress=True,
-        )
-
-
-def allocate_system(file: h5py.File):
-    if get_dynamics(file):
-        return DepinningSystemStressControl(file)
-    else:
-        return SystemStressControl(file)
 
 
 def Generate(cli_args=None):
@@ -447,19 +455,19 @@ def Run(cli_args=None):
 
     with h5py.File(args.file, "a") as file:
         tools.create_check_meta(file, f"/meta/Preparation/{funcname}", dev=args.develop)
-        system = allocate_system(file)
+        system = allocate_System(file)
         init = file["init"]
         init["sigma"][...] = system.sigma
         init["sigmay"][...] = system.sigmay
         init["state"][...] = system.state
 
 
-def overwrite_restart(restart: h5py.Group, system):
+def dump_restart(restart: h5py.Group, system):
     """
     Dump system state to a restart group.
 
-    :param restart: Restart group
-    :param system: System
+    :param restart: Restart group.
+    :param system: System (not modified).
     """
     storage.dump_overwrite(restart, "epsp", system.epsp)
     storage.dump_overwrite(restart, "sigma", system.sigma)
@@ -467,3 +475,19 @@ def overwrite_restart(restart: h5py.Group, system):
     storage.dump_overwrite(restart, "t", system.t)
     storage.dump_overwrite(restart, "state", system.state)
     restart.file.flush()
+
+
+def load_restart(restart: h5py.Group, system):
+    """
+    Load system state from a restart group.
+
+    :param restart: Restart group.
+    :param system: System (modified).
+    :return: System (modified).
+    """
+    system.epsp = restart["epsp"][...]
+    system.sigma = restart["sigma"][...]
+    system.sigmay = restart["sigmay"][...]
+    system.t = restart["t"][...]
+    system.state = restart["state"][...]
+    return system
