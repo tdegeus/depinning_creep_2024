@@ -182,7 +182,7 @@ def EnsembleInfo(cli_args=None, myname=m_name):
     parser.add_argument("--ndx", type=int, help="Number of x_c - x_0 to sample", default=100)
     parser.add_argument("--xc", type=float, help="Value of x_c")
     parser.add_argument(
-        "--means", type=int, default=3, help="Compute <S, A, ell>**(i + 1) for i in range(means)"
+        "--means", type=int, default=4, help="Compute <S, A, ell>**(i + 1) for i in range(means)"
     )
     parser.add_argument("files", nargs="*", type=pathlib.Path, help="Simulation files")
 
