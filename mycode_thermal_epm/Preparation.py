@@ -64,11 +64,11 @@ def default_options(file: h5py.File) -> dict:
     init = file["init"] if "init" in file else file["restart"]
     prop, dist = propagator(param)
     ret = dict(
-        rules= "default",
+        rules="default",
         loading="stress",
         thermal=False,
-        propagator = prop,
-        distances = dist,
+        propagator=prop,
+        distances=dist,
         alpha=param["alpha"][...],
         seed=init["state"].attrs["seed"],
         random_stress=False,
@@ -92,6 +92,7 @@ def default_options(file: h5py.File) -> dict:
             ret["sigmay_mean"] = np.ones(param["shape"][...]) * init["sigmay"].attrs["mean"]
 
     return ret
+
 
 def allocate_System(file: h5py.File):
     opts = default_options(file)

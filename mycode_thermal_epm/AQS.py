@@ -20,6 +20,7 @@ f_info = "EnsembleInfo.h5"
 m_name = "AQS"
 m_exclude = ["Extremal", "ExtremalAvalanche", "Thermal"]
 
+
 def allocate_System(file: h5py.File):
     param = file["param"]
     restart = file["restart"]
@@ -30,6 +31,7 @@ def allocate_System(file: h5py.File):
     system = Preparation.load_restart(restart, system)
     system.epsframe = restart["uframe"][...]
     return system
+
 
 def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
     """
