@@ -178,7 +178,7 @@ def EnsembleInfo(cli_args=None, myname=m_name):
     parser.add_argument("-v", "--version", action="version", version=version)
     parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
     parser.add_argument("-o", "--output", type=pathlib.Path, help="Output file", default=f_info)
-    parser.add_argument("--nbins", type=int, help="Number of bins", default=60)
+    parser.add_argument("--nbins", type=int, help="Number of bins P(S), P(A), P(ell)", default=60)
     parser.add_argument("--ndx", type=int, help="Number of x_c - x_0 to sample", default=100)
     parser.add_argument("--xc", type=float, help="Value of x_c")
     parser.add_argument(
@@ -251,7 +251,7 @@ def EnsembleInfo(cli_args=None, myname=m_name):
                     ell_hist[i] += ell
                     fractal_A[i].add_sample(A, S)
                     fractal_ell[i].add_sample(ell, S)
-                    S = S.astype(int).astype("object")
+                    S = S.astype(int).astype("object")  # to avoid overflow (ell=float)
                     A = A.astype(int).astype("object")
                     for p in range(args.means):
                         S_mean[i][p] += S ** (p + 1)
