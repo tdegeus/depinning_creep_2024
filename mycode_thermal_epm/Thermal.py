@@ -22,7 +22,7 @@ from .Preparation import data_version
 f_info = "EnsembleInfo.h5"
 f_height = "EnsembleHeightHeight.h5"
 f_structure = "EnsembleStructure.h5"
-f_length = "EnsembleDynamicStructure.h5"
+f_avalanches = "EnsembleDynamicAvalanches.h5"
 m_name = "Thermal"
 m_avalanche = "Avalanche"
 m_exclude = ["AQS", "Extremal", "ExtremalAvalanche"]
@@ -624,9 +624,10 @@ def Plot(cli_args=None):
         plt.close(fig)
 
 
-def EnsembleDynamicStructure(cli_args=None, myname=m_name):
+def EnsembleDynamicAvalanches(cli_args=None, myname=m_name):
     """
-    Basic interpretation of the ensemble.
+    Calculate properties of avalanches at different times compared to an arbitrary reference time.
+    The interface is arbitrarily assumed flat.
     """
 
     class MyFmt(
@@ -643,8 +644,13 @@ def EnsembleDynamicStructure(cli_args=None, myname=m_name):
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("-v", "--version", action="version", version=version)
     parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
-    parser.add_argument("-o", "--output", type=pathlib.Path, help="Output file", default=f_length)
+    parser.add_argument(
+        "-o", "--output", type=pathlib.Path, help="Output file", default=f_avalanches
+    )
     parser.add_argument("--bins", type=int, default=100, help="#bins for tau")
+    parser.add_argument(
+        "--bins-pdf", type=int, help="Number of bins P(S), P(A), P(ell)", default=60
+    )
     parser.add_argument("info", type=pathlib.Path, help="EnsembleInfo")
 
     args = tools._parse(parser, cli_args)
@@ -667,53 +673,111 @@ def EnsembleDynamicStructure(cli_args=None, myname=m_name):
         A.squash(4)
         phi = 1 - A.mean()
         tau = t.mean()
-        t_measure = np.linspace(tau[np.argmax(phi < 0.9)], tau[np.argmax(phi < 0.1)], args.bins)
+        t_measure = np.linspace(tau[np.argmax(phi < 0.9)], tau[np.argmax(phi < 0.1)], args.bins_pdf)
 
     root = args.info.parent
     files = [root / f for f in files]
     assert all([f.exists() for f in files])
 
-    structure = [eye.Structure(shape=shape) for _ in t_measure]
-    t_mean = [enstat.scalar() for _ in t_measure]
+    # allocate
+    init = False
+    for f in files:
+        with h5py.File(f) as file:
+            if myname not in file:
+                assert not any(m in file for m in m_exclude), "Wrong file type"
+                continue
+
+            res = file[myname]
+            _, nava = _check_data(file, error=False)
+            if "idx_ignore" in res:
+                idx_ignore = list(res["idx_ignore"][...])
+            else:
+                idx_ignore = []
+
+            for iava in range(nava):
+                if iava in idx_ignore:
+                    continue
+
+                t = res["T"][iava, ...]
+                idx = res["idx"][iava, ...]
+
+                structure = [eye.Structure(shape=shape) for _ in t_measure]
+                t_mean = [enstat.scalar() for _ in t_measure]
+
+                opts = dict(bins=args.bins_pdf, mode="log", integer=True)
+                edges = enstat.histogram.from_data(np.array([1, idx.size]), **opts).bin_edges
+                hist_S = [enstat.histogram(bin_edges=edges) for _ in t_measure]
+
+                edges = enstat.histogram.from_data(np.array([1, np.prod(shape)]), **opts).bin_edges
+                hist_A = [enstat.histogram(bin_edges=edges) for _ in t_measure]
+
+                edges = enstat.histogram.from_data(np.array([1, np.max(shape)]), **opts).bin_edges
+                hist_ell = [enstat.histogram(bin_edges=edges) for _ in t_measure]
+
+                init = True
+                break
+
+            if init:
+                break
+
+    assert init, "Did not find any data"
+
+    for ifile, f in enumerate(tqdm.tqdm(files)):
+        with h5py.File(f) as file:
+            if myname not in file:
+                continue
+            res = file[myname]
+            nava = _check_data(file, error=False)[1]
+
+            if "idx_ignore" in res:
+                idx_ignore = list(res["idx_ignore"][...])
+            else:
+                idx_ignore = []
+
+            for iava in range(nava):
+                if iava in idx_ignore:
+                    continue
+
+                t = res["T"][iava, ...]
+                idx = res["idx"][iava, ...].astype(int)
+                segmenter = epm.allocate_AvalancheSegmenter(shape=shape, idx=idx, t=t)
+
+                for i0, t0 in enumerate(t_measure):
+                    segmenter.advance_to(t0, floor=True)
+                    s = segmenter.s.astype(int)
+                    structure[i0] += s
+                    t_mean[i0] += segmenter.t
+                    lab = segmenter.labels.astype(int).ravel()
+                    a = np.bincount(lab)
+                    keep = a > 0
+                    keep[0] = False
+                    a = a[keep]
+                    hist_S[i0] += np.bincount(lab, weights=s.ravel()).astype(int)[keep]
+                    hist_A[i0] += a
+                    hist_ell[i0] += Preparation.convert_A_to_ell(a, len(shape))
 
     with h5py.File(args.output, "w") as output:
         tools.create_check_meta(output, f"/meta/{myname}/{funcname}", dev=args.develop)
         output["/settings/time"] = t_measure
-        out_structure = output.create_group("data").create_group("structure")
-        out_time = output["data"].create_group("time")
+        with h5py.File(files[0]) as file:
+            g5.copy(file, output, ["/param"])
 
-        for ifile, f in enumerate(tqdm.tqdm(files)):
-            with h5py.File(f) as file:
-                if ifile == 0:
-                    g5.copy(file, output, ["/param"])
+        d = output.create_group("data")
+        ret = [
+            ("structure", d.create_group("structure"), structure),
+            ("time", d.create_group("time"), t_mean),
+            ("hist_S", d.create_group("hist_S"), hist_S),
+            ("hist_A", d.create_group("hist_A"), hist_A),
+            ("hist_ell", d.create_group("hist_ell"), hist_ell),
+        ]
 
-                if myname not in file:
-                    assert not any(m in file for m in m_exclude), "Wrong file type"
-                    continue
-
-                res = file[myname]
-
-                _, n = _check_data(file, error=False)
-                if "idx_ignore" in res:
-                    idx_ignore = list(res["idx_ignore"][...])
+        for i0, _ in enumerate(t_measure):
+            for name, group, source in ret:
+                if name == "structure":
+                    g = group.create_group(f"{i0:d}")
+                    for key, value in source[i0]:
+                        g[key] = value[:, 0]
                 else:
-                    idx_ignore = []
-
-                for i in range(n):
-                    if i in idx_ignore:
-                        continue
-                    t = res["T"][i, ...]
-                    idx = res["idx"][i, ...].astype(int)
-                    for im, tm in enumerate(t_measure):
-                        j = np.argmin(np.abs(t - tm))
-                        s = np.bincount(idx[:j], minlength=np.prod(shape)).reshape(shape)
-                        structure[im] += s
-                        t_mean[im] += t[j]
-
-        for im in range(len(t_measure)):
-            group = out_structure.create_group(f"{im:d}")
-            for key, value in structure[im]:
-                group[key] = value[:, 0]
-            group = out_time.create_group(f"{im:d}")
-            for key, value in t_mean[im]:
-                group[key] = value
+                    g = group.create_group(f"{i0:d}")
+                    for key, value in source[i0]:
+                        g[key] = value

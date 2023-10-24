@@ -40,6 +40,19 @@ def get_dynamics(file: h5py.File) -> str:
     return "default"
 
 
+def convert_A_to_ell(A: np.ndarray, dim: int) -> np.ndarray:
+    """
+    Convert number of blocks that yielded at least once to a proxy for the linear extent.
+    :param A: Number of blocks that yielded at least once.
+    :param dim: Dimension.
+    """
+    if dim == 1:
+        return A
+    if dim == 2:
+        return np.sqrt(A)
+    raise NotImplementedError
+
+
 def default_options(file: h5py.File) -> dict:
     """
     Construct a dictionary with default options for the allocation of a system.
