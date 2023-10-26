@@ -677,7 +677,8 @@ def EnsembleDynamicAvalanches(cli_args=None, myname=m_name):
 
     root = args.info.parent
     files = [root / f for f in files]
-    assert all([f.exists() for f in files])
+    files = [f for f in files if f.exists()]
+    assert len(files) > 0
 
     # allocate
     init = False
