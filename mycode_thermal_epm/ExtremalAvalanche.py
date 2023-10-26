@@ -243,50 +243,48 @@ def EnsembleInfo(cli_args=None, myname=m_name):
                 idx = res["idx"][...]
                 xmin = res["xmin"][...]
                 x_hist += xmin
-                for i, x0 in enumerate(tqdm.tqdm(x0_list)):
+                for i0, x0 in enumerate(tqdm.tqdm(x0_list)):
                     S, A, _ = epm.segment_avalanche(x0 >= xmin, idx, first=False, last=False)
                     ell = np.sqrt(A)
-                    A_hist[i] += A
-                    S_hist[i] += S
-                    ell_hist[i] += ell
-                    fractal_A[i].add_sample(A, S)
-                    fractal_ell[i].add_sample(ell, S)
+                    A_hist[i0] += A
+                    S_hist[i0] += S
+                    ell_hist[i0] += ell
+                    fractal_A[i0].add_sample(A, S)
+                    fractal_ell[i0].add_sample(ell, S)
                     S = S.astype(int).astype("object")  # to avoid overflow (ell=float)
                     A = A.astype(int).astype("object")
                     for p in range(args.means):
-                        S_mean[i][p] += S ** (p + 1)
-                        A_mean[i][p] += A ** (p + 1)
-                        ell_mean[i][p] += ell ** (p + 1)
+                        S_mean[i0][p] += S ** (p + 1)
+                        A_mean[i0][p] += A ** (p + 1)
+                        ell_mean[i0][p] += ell ** (p + 1)
 
-            for n, v in zip(["x_hist"], [x_hist]):
-                storage.dump_overwrite(output, f"/{n}/bin_edges", v.bin_edges)
-                storage.dump_overwrite(output, f"/{n}/count", v.count)
+            for name, value in zip(["x_hist"], [x_hist]):
+                value = dict(value)
+                for key in ["bin_edges", "count"]:
+                    storage.dump_overwrite(output, f"/{name}/{key}", value[key])
 
-            for n, v in zip(["S_hist", "A_hist", "ell_hist"], [S_hist, A_hist, ell_hist]):
-                storage.dump_overwrite(output, f"/{n}/bin_edges", [i.bin_edges for i in v])
-                storage.dump_overwrite(output, f"/{n}/count", [i.count for i in v])
+            for name, value in zip(["S_hist", "A_hist", "ell_hist"], [S_hist, A_hist, ell_hist]):
+                value = [dict(i0) for i0 in value]
+                for key in ["bin_edges", "count"]:
+                    storage.dump_overwrite(output, f"/{name}/{key}", [i0[key] for i0 in value])
 
-            for n, v in zip(["S_mean", "A_mean", "ell_mean"], [S_mean, A_mean, ell_mean]):
-                storage.dump_overwrite(
-                    output,
-                    f"/{n}/first",
-                    np.array([[int(m.first) for m in i] for i in v], dtype=np.float64),
-                )
-                storage.dump_overwrite(
-                    output,
-                    f"/{n}/second",
-                    np.array([[int(m.second) for m in i] for i in v], dtype=np.float64),
-                )
-                storage.dump_overwrite(
-                    output,
-                    f"/{n}/norm",
-                    np.array([[int(m.norm) for m in i] for i in v], dtype=np.float64),
-                )
+            for name, value in zip(["S_mean", "A_mean", "ell_mean"], [S_mean, A_mean, ell_mean]):
+                value = [[dict(p) for p in i0] for i0 in value]
+                for key in ["first", "second", "norm"]:
+                    storage.dump_overwrite(
+                        output, f"/{name}/{key}", [[float(p[key]) for p in i0] for i0 in value]
+                    )
 
-            for n, v in zip(["fractal_A", "fractal_ell"], [fractal_A, fractal_ell]):
-                for key in ["S", n.split("_")[1]]:
-                    storage.dump_overwrite(output, f"/{n}/{key}/first", [i[key].first for i in v])
-                    storage.dump_overwrite(output, f"/{n}/{key}/second", [i[key].second for i in v])
-                    storage.dump_overwrite(output, f"/{n}/{key}/norm", [i[key].norm for i in v])
+            for name, value in zip(["fractal_A", "fractal_ell"], [fractal_A, fractal_ell]):
+                for key in ["S", name.split("_")[1]]:
+                    storage.dump_overwrite(
+                        output, f"/{name}/{key}/first", [i0[key].first for i0 in value]
+                    )
+                    storage.dump_overwrite(
+                        output, f"/{name}/{key}/second", [i0[key].second for i0 in value]
+                    )
+                    storage.dump_overwrite(
+                        output, f"/{name}/{key}/norm", [i0[key].norm for i0 in value]
+                    )
 
             output.flush()
