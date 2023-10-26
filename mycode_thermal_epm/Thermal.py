@@ -647,9 +647,12 @@ def EnsembleDynamicAvalanches(cli_args=None, myname=m_name):
     parser.add_argument(
         "-o", "--output", type=pathlib.Path, help="Output file", default=f_avalanches
     )
-    parser.add_argument("--bins", type=int, default=100, help="#bins for tau")
     parser.add_argument(
-        "--bins-pdf", type=int, help="Number of bins P(S), P(A), P(ell)", default=60
+        "--tau", type=float, nargs=3, default=[-5, 0, 51], help="logspace tau (units of tau_alpha)"
+    )
+    parser.add_argument("--bins", type=int, help="Number of bins for P(S, A, ell)", default=60)
+    parser.add_argument(
+        "--means", type=int, default=4, help="Compute <S, A, ell>**(i + 1) for i in range(means)"
     )
     parser.add_argument("info", type=pathlib.Path, help="EnsembleInfo")
 
@@ -673,7 +676,8 @@ def EnsembleDynamicAvalanches(cli_args=None, myname=m_name):
         A.squash(4)
         phi = 1 - A.mean()
         tau = t.mean()
-        t_measure = np.linspace(tau[np.argmax(phi < 0.9)], tau[np.argmax(phi < 0.1)], args.bins_pdf)
+        tau_alpha = tau[np.argmax(phi < 0.5)]
+        t_measure = np.logspace(args.tau[0], args.tau[1], int(args.tau[2])) * tau_alpha
 
     root = args.info.parent
     files = [root / f for f in files]
@@ -703,9 +707,9 @@ def EnsembleDynamicAvalanches(cli_args=None, myname=m_name):
                 idx = res["idx"][iava, ...]
 
                 structure = [eye.Structure(shape=shape) for _ in t_measure]
-                t_mean = [enstat.scalar() for _ in t_measure]
+                mean_t = [enstat.scalar() for _ in t_measure]
 
-                opts = dict(bins=args.bins_pdf, mode="log", integer=True)
+                opts = dict(bins=args.bins, mode="log", integer=True)
                 edges = enstat.histogram.from_data(np.array([1, idx.size]), **opts).bin_edges
                 hist_S = [enstat.histogram(bin_edges=edges) for _ in t_measure]
 
@@ -715,6 +719,11 @@ def EnsembleDynamicAvalanches(cli_args=None, myname=m_name):
                 edges = enstat.histogram.from_data(np.array([1, np.max(shape)]), **opts).bin_edges
                 hist_ell = [enstat.histogram(bin_edges=edges) for _ in t_measure]
 
+                n = args.means
+                mean_S = [[enstat.scalar(dtype=int) for _ in range(n)] for _ in t_measure]
+                mean_A = [[enstat.scalar(dtype=int) for _ in range(n)] for _ in t_measure]
+                mean_ell = [[enstat.scalar(dtype=int) for _ in range(n)] for _ in t_measure]
+
                 init = True
                 break
 
@@ -723,62 +732,92 @@ def EnsembleDynamicAvalanches(cli_args=None, myname=m_name):
 
     assert init, "Did not find any data"
 
-    for ifile, f in enumerate(tqdm.tqdm(files)):
-        with h5py.File(f) as file:
-            if myname not in file:
-                continue
-            res = file[myname]
-            nava = _check_data(file, error=False)[1]
-
-            if "idx_ignore" in res:
-                idx_ignore = list(res["idx_ignore"][...])
-            else:
-                idx_ignore = []
-
-            for iava in range(nava):
-                if iava in idx_ignore:
-                    continue
-
-                t = res["T"][iava, ...]
-                idx = res["idx"][iava, ...].astype(int)
-                segmenter = epm.allocate_AvalancheSegmenter(shape=shape, idx=idx, t=t)
-
-                for i0, t0 in enumerate(t_measure):
-                    segmenter.advance_to(t0, floor=True)
-                    s = segmenter.s.astype(int)
-                    structure[i0] += s
-                    t_mean[i0] += segmenter.t
-                    lab = segmenter.labels.astype(int).ravel()
-                    a = np.bincount(lab)
-                    keep = a > 0
-                    keep[0] = False
-                    a = a[keep]
-                    hist_S[i0] += np.bincount(lab, weights=s.ravel()).astype(int)[keep]
-                    hist_A[i0] += a
-                    hist_ell[i0] += Preparation.convert_A_to_ell(a, len(shape))
-
     with h5py.File(args.output, "w") as output:
         tools.create_check_meta(output, f"/meta/{myname}/{funcname}", dev=args.develop)
-        output["/settings/time"] = t_measure
+        output["/settings/tau"] = t_measure
+        output["/settings/tau_alpha"] = tau_alpha
         with h5py.File(files[0]) as file:
             g5.copy(file, output, ["/param"])
 
-        d = output.create_group("data")
-        ret = [
-            ("structure", d.create_group("structure"), structure),
-            ("time", d.create_group("time"), t_mean),
-            ("hist_S", d.create_group("hist_S"), hist_S),
-            ("hist_A", d.create_group("hist_A"), hist_A),
-            ("hist_ell", d.create_group("hist_ell"), hist_ell),
-        ]
+        for ifile, f in enumerate(tqdm.tqdm(files)):
+            with h5py.File(f) as file:
+                if myname not in file:
+                    continue
+                res = file[myname]
+                nava = _check_data(file, error=False)[1]
 
-        for i0, _ in enumerate(t_measure):
-            for name, group, source in ret:
-                if name == "structure":
-                    g = group.create_group(f"{i0:d}")
-                    for key, value in source[i0]:
-                        g[key] = value[:, 0]
+                if "idx_ignore" in res:
+                    idx_ignore = list(res["idx_ignore"][...])
                 else:
-                    g = group.create_group(f"{i0:d}")
-                    for key, value in source[i0]:
-                        g[key] = value
+                    idx_ignore = []
+
+                for iava in range(nava):
+                    if iava in idx_ignore:
+                        continue
+
+                    t = res["T"][iava, ...]
+                    idx = res["idx"][iava, ...].astype(int)
+                    segmenter = epm.allocate_AvalancheSegmenter(shape=shape, idx=idx, t=t)
+
+                    for i0, t0 in enumerate(t_measure):
+                        segmenter.advance_to(t0, floor=True)
+                        s = segmenter.s.astype(int)
+                        structure[i0] += s
+                        mean_t[i0] += segmenter.t
+
+                        lab = segmenter.labels.astype(int).ravel()
+                        a = np.bincount(lab)
+                        s = np.bincount(lab, weights=s.ravel()).astype(int)
+                        ell = Preparation.convert_A_to_ell(a, len(shape))
+                        keep = a > 0  # merged labels are empty
+                        keep[0] = False  # background label=0
+                        a = a[keep]
+                        s = s[keep]
+                        ell = ell[keep]
+                        hist_S[i0] += s
+                        hist_A[i0] += a
+                        hist_ell[i0] += ell
+                        s = s.astype(int).astype("object")  # to avoid overflow (ell=float)
+                        a = a.astype(int).astype("object")
+                        for p in range(args.means):
+                            mean_S[i0][p] += s ** (p + 1)
+                            mean_A[i0][p] += a ** (p + 1)
+                            mean_ell[i0][p] += ell ** (p + 1)
+
+            for name, value in zip(["tau"], [mean_t]):
+                value = [dict(i0) for i0 in value]
+                for key in ["first", "second", "norm"]:
+                    storage.dump_overwrite(
+                        output,
+                        f"/data/{name}/{key}",
+                        np.array([float(i0[key]) for i0 in value], dtype=np.float64),
+                    )
+
+            for name, value in zip(["structure"], [structure]):
+                value = [dict(i0) for i0 in value]
+                for key in ["first", "second", "norm"]:
+                    storage.dump_overwrite(
+                        output,
+                        f"/data/{name}/{key}",
+                        np.array([i0[key][:, 0] for i0 in value], dtype=np.float64),
+                    )
+
+            for name, value in zip(["S_hist", "A_hist", "ell_hist"], [hist_S, hist_A, hist_ell]):
+                value = [dict(i0) for i0 in value]
+                for key in ["bin_edges", "count"]:
+                    storage.dump_overwrite(
+                        output,
+                        f"/data/{name}/{key}",
+                        np.array([i0[key] for i0 in value], dtype=np.float64),
+                    )
+
+            for name, value in zip(["S_mean", "A_mean", "ell_mean"], [mean_S, mean_A, mean_ell]):
+                value = [[dict(p) for p in i0] for i0 in value]
+                for key in ["first", "second", "norm"]:
+                    storage.dump_overwrite(
+                        output,
+                        f"/data/{name}/{key}",
+                        np.array([[float(p[key]) for p in i0] for i0 in value], dtype=np.float64),
+                    )
+
+            output.flush()
