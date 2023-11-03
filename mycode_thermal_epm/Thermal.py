@@ -757,32 +757,39 @@ def EnsembleDynamicAvalanches(cli_args=None, myname=m_name):
 
                     t = res["T"][iava, ...]
                     idx = res["idx"][iava, ...].astype(int)
-                    segmenter = epm.allocate_AvalancheSegmenter(shape=shape, idx=idx, t=t)
 
-                    for i0, t0 in enumerate(t_measure):
-                        segmenter.advance_to(t0, floor=True)
-                        s = segmenter.s.astype(int)
-                        structure[i0] += s
-                        mean_t[i0] += segmenter.t
+                    while True:
+                        if t[-1] < t_measure[-1]:
+                            break
+                        segmenter = epm.allocate_AvalancheSegmenter(shape=shape, idx=idx, t=t)
 
-                        lab = segmenter.labels.astype(int).ravel()
-                        a = np.bincount(lab)
-                        s = np.bincount(lab, weights=s.ravel()).astype(int)
-                        ell = Preparation.convert_A_to_ell(a, len(shape))
-                        keep = a > 0  # merged labels are empty
-                        keep[0] = False  # background label=0
-                        a = a[keep]
-                        s = s[keep]
-                        ell = ell[keep]
-                        hist_S[i0] += s
-                        hist_A[i0] += a
-                        hist_ell[i0] += ell
-                        s = s.astype(int).astype("object")  # to avoid overflow (ell=float)
-                        a = a.astype(int).astype("object")
-                        for p in range(args.means):
-                            mean_S[i0][p] += s ** (p + 1)
-                            mean_A[i0][p] += a ** (p + 1)
-                            mean_ell[i0][p] += ell ** (p + 1)
+                        for i0, t0 in enumerate(t_measure):
+                            segmenter.advance_to(t0, floor=True)
+                            s = segmenter.s.astype(int)
+                            structure[i0] += s
+                            mean_t[i0] += segmenter.t
+
+                            lab = segmenter.labels.astype(int).ravel()
+                            a = np.bincount(lab)
+                            s = np.bincount(lab, weights=s.ravel()).astype(int)
+                            ell = Preparation.convert_A_to_ell(a, len(shape))
+                            keep = a > 0  # merged labels are empty
+                            keep[0] = False  # background label=0
+                            a = a[keep]
+                            s = s[keep]
+                            ell = ell[keep]
+                            hist_S[i0] += s
+                            hist_A[i0] += a
+                            hist_ell[i0] += ell
+                            s = s.astype(int).astype("object")  # to avoid overflow (ell=float)
+                            a = a.astype(int).astype("object")
+                            for p in range(args.means):
+                                mean_S[i0][p] += s ** (p + 1)
+                                mean_A[i0][p] += a ** (p + 1)
+                                mean_ell[i0][p] += ell ** (p + 1)
+
+                        t = t[segmenter.nstep :] - t[segmenter.nstep]
+                        idx = idx[segmenter.nstep :]
 
             for name, value in zip(["tau"], [mean_t]):
                 value = [dict(i0) for i0 in value]
