@@ -187,6 +187,34 @@ def UpgradeData(cli_args=None):
     Preparation.UpgradeData(cli_args, _upgrade_data)
 
 
+def CheckData(cli_args=None):
+    r"""
+    Basic check of data.
+    """
+
+    class MyFmt(
+        argparse.RawDescriptionHelpFormatter,
+        argparse.ArgumentDefaultsHelpFormatter,
+        argparse.MetavarTypeHelpFormatter,
+    ):
+        pass
+
+    funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
+
+    parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
+    parser.add_argument("--no-bak", action="store_true", help="Do not backup before modifying")
+    parser.add_argument("files", type=pathlib.Path, nargs="*", help="File (overwritten)")
+
+    args = tools._parse(parser, cli_args)
+    assert all([f.is_file() for f in args.files]), "File not found"
+
+    for filepath in args.files:
+        with h5py.File(filepath) as file:
+            _check_data(file)
+
+
 def BranchPreparation(cli_args=None):
     r"""
     Branch from prepared stress state and add parameters.
