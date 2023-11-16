@@ -292,6 +292,9 @@ def Run(cli_args=None):
     parser.add_argument("--interval", type=int, default=100, help="Measure every #events")
     parser.add_argument("-n", "--measurements", type=int, default=100, help="Total #measurements")
     parser.add_argument("--ninc", type=int, help="#increments to measure (default: ``20 N``)")
+    parser.add_argument(
+        "--force-interval", action="store_true", help="Run exactly --interval steps"
+    )
     parser.add_argument("file", type=pathlib.Path, help="Input/output file")
 
     args = tools._parse(parser, cli_args)
@@ -318,10 +321,11 @@ def Run(cli_args=None):
         for _ in tqdm.tqdm(range(args.measurements), desc=str(args.file)):
             nfails = system.nfails.copy()
             system.makeThermalFailureSteps(args.interval * system.size)
-            while True:
-                if np.all(system.nfails - nfails >= args.interval):
-                    break
-                system.makeThermalFailureSteps(system.size)
+            if not args.force_interval:
+                while True:
+                    if np.all(system.nfails - nfails >= args.interval):
+                        break
+                    system.makeThermalFailureSteps(system.size)
 
             with g5.ExtendableSlice(res, "epsp", system.shape, np.float64) as dset:
                 dset += system.epsp
