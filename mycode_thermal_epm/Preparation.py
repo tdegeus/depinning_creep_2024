@@ -1,10 +1,15 @@
+from __future__ import annotations
+
 import argparse
 import inspect
 import os
 import pathlib
+import re
 import shutil
 import tempfile
 import textwrap
+import warnings
+from datetime import datetime
 
 import enstat
 import GooseEPM as epm
@@ -13,31 +18,16 @@ import h5py
 import numpy as np
 import shelephant
 import tqdm
+from numpy.typing import ArrayLike
 
 from . import storage
 from . import tag
 from . import tools
 from ._version import version
 
-data_version = "2.0"
-m_exclude = ["AQS", "Extremal", "ExtremalAvalanche", "Thermal"]
-
-
-def propagator(param: h5py.Group):
-    if param["interactions"].asstr()[...] == "monotonic-shortrange":
-        return epm.laplace_propagator()
-    raise NotImplementedError("Unknown interactions type '%s'" % param["interactions"])
-
-
-def get_dynamics(file: h5py.File) -> str:
-    """
-    Read the dynamics from the file.
-    :param file: Opened file (read ``/param/dynamics``).
-    """
-    assert "param" in file
-    if "dynamics" in file["param"]:
-        return file["param"]["dynamics"].asstr()[...]
-    return "default"
+data_version = "3.0"
+m_name = "Preparation"
+m_exclude = ["AQS", "Extremal", "Thermal"]
 
 
 def convert_A_to_ell(A: np.ndarray, dim: int) -> np.ndarray:
@@ -53,75 +43,101 @@ def convert_A_to_ell(A: np.ndarray, dim: int) -> np.ndarray:
     raise NotImplementedError
 
 
-def default_options(file: h5py.File) -> dict:
+def propagator(group: h5py.Group) -> tuple[np.ndarray, list[np.ndarray]]:
     """
-    Construct a dictionary with default options for the allocation of a system.
-    :param file: Opened file (read ``/param``).
-    :return: Dictionary with default options.
+    Return the propagator and the distances.
+
+    :param group: Opened group ``"param"`` (read ``"interactions"``).
+    :return: Propagator and distances.
     """
-    assert ("restart" in file and "init" not in file) or ("init" in file and "restart" not in file)
-    param = file["param"]
-    init = file["init"] if "init" in file else file["restart"]
-    prop, dist = propagator(param)
-    ret = dict(
+    if group["interactions"].asstr()[...] == "monotonic-shortrange":
+        return epm.laplace_propagator()
+    raise NotImplementedError(f"Unknown interactions type '{group['interactions']}'")
+
+
+def get_dynamics(group: h5py.Group) -> str:
+    """
+    Read the dynamics from the file.
+
+    :param group: Opened group ``"param"`` (read ``"dynamics"``).
+    :return: Dynamics (``"default"`` or ``"depinning"``)
+    """
+    if "dynamics" in group:
+        return group["dynamics"].asstr()[...]
+    return "default"
+
+
+def allocate_System(
+    group: h5py.Group,
+    random_stress: bool = True,
+    loading: str = "stress",
+    thermal: bool = False,
+    **kwargs,
+) -> epm.SystemClass:
+    """
+    Allocate the system.
+
+    .. note::
+
+        You need to additionally restore a state if so desired.
+
+    :param group: Opened group ``"param"``.
+    :param random_stress: ``True`` if a random, compatible, stress should be generated.
+    :param loading: Loading type.
+    :param thermal: Simulate at finite temperature.
+    :return: Allocated system.
+    """
+    prop, dist = propagator(group)
+    opts = dict(
         rules="default",
-        loading="stress",
-        thermal=False,
+        loading=loading,
+        thermal=thermal,
         propagator=prop,
         distances=dist,
-        alpha=param["alpha"][...],
-        seed=init["state"].attrs["seed"],
-        random_stress=False,
+        sigmay_mean=np.ones(group["shape"][...]) * group["sigmay"][0],
+        sigmay_std=np.ones(group["shape"][...]) * group["sigmay"][1],
+        seed=group["seed"][...],
+        alpha=group["alpha"][...],
+        random_stress=random_stress,
     )
 
-    if "sigmay" in param:
-        ret["sigmay_std"] = np.ones(param["shape"][...]) * param["sigmay"][1]
-    else:
-        ret["sigmay_std"] = np.ones(param["shape"][...]) * init["sigmay"].attrs["std"]
+    if get_dynamics(group) == "depinning":
+        opts["rules"] = "depinning"
+        opts.pop("sigmay_mean")
+        assert np.isclose(group["sigmay"][0], 0)
 
-    if get_dynamics(file) == "depinning":
-        ret["rules"] = "depinning"
-        if "sigmay" in param:
-            assert np.isclose(param["sigmay"][0], 0)
-        else:
-            assert np.isclose(init["sigmay"].attrs["mean"], 0)
-    else:
-        if "sigmay" in param:
-            ret["sigmay_mean"] = np.ones(param["shape"][...]) * param["sigmay"][0]
-        else:
-            ret["sigmay_mean"] = np.ones(param["shape"][...]) * init["sigmay"].attrs["mean"]
-
-    return ret
+    return epm.allocate_System(**opts, **kwargs)
 
 
-def allocate_System(file: h5py.File):
-    opts = default_options(file)
-    opts["random_stress"] = True
-    return epm.allocate_System(**opts)
-
-
-def get_x(file: h5py.File, data: h5py.Group) -> np.ndarray:
+def compute_x(dynamics: str, sigma: ArrayLike, sigmay: ArrayLike) -> np.ndarray:
     """
-    Read the distance to yielding.
-    :param file: Data file (forwarded to :py:func:`get_dynamics`).
-    :param data: Data group to read ``sigmay`` and ``sigma`` from.
+    Compute the distance to yielding.
+
+    :param dynamics: Dynamics (``"default"`` or ``"depinning"``)
+    :param sigma: Stresses.
+    :param sigmay: Yield stresses.
     :return: Distance to yielding.
     """
-    if get_dynamics(file) == "depinning":
-        return data["sigmay"][...] - data["sigma"][...]
-    return data["sigmay"][...] - np.abs(data["sigma"][...])
+    if dynamics == "default":
+        return sigmay - np.abs(sigma)
+
+    if dynamics == "depinning":
+        return sigmay - sigma
+
+    raise NotImplementedError(f"Unknown dynamics '{dynamics}'")
 
 
-def store_histogram(data: h5py.Group, hist: enstat.histogram):
+def store_histogram(group: h5py.Group, hist: enstat.histogram) -> None:
     """
     Store the histogram.
-    :param data: Data group.
+
+    :param group: Data group.
     :param hist: Histogram.
     """
-    storage.dump_overwrite(data, "bin_edges", hist.bin_edges)
-    storage.dump_overwrite(data, "count", hist.count)
-    storage.dump_overwrite(data, "count_left", hist.count_left)
-    storage.dump_overwrite(data, "count_right", hist.count_right)
+    storage.dump_overwrite(group, "bin_edges", hist.bin_edges)
+    storage.dump_overwrite(group, "count", hist.count)
+    storage.dump_overwrite(group, "count_left", hist.count_left)
+    storage.dump_overwrite(group, "count_right", hist.count_right)
 
 
 def get_data_version(file: h5py.File) -> str:
@@ -136,75 +152,150 @@ def get_data_version(file: h5py.File) -> str:
     return "0.0"
 
 
-def _libname_pre_v2(libs: list[str]) -> list[str]:
+def check_copy(
+    src: h5py.File,
+    dst: h5py.File,
+    rename: list = None,
+    shallow: bool = True,
+    attrs: bool = True,
+    allow: dict = {},
+) -> None:
     """
-    Rename library names from data_version == 2.0 to those used in data_version < 2.0.
-
-    :param libs: List of new library names.
-    :return: Corresponding list of old library names.
-    """
-    rename = {
-        "Preparation": "AthermalPreparation",
-        "AQS": "AthermalQuasiStatic",
-        "Extremal": "ExtremeValue",
-        "ExtremalAvalanche": "ExtremeValue/Avalanche",
-        "Thermal": "Thermal",
-    }
-    return [rename[i] for i in libs]
-
-
-def _copy_metadata_pre_v2(src: h5py.File, dst: h5py.File) -> None:
-    """
-    Copy and rename metadata from data_version < 2.0 to data_version == 2.0.
+    Check that all datasets in ``src`` are also in ``dst``
+    (check that ``"!="`` and ``"->"`` are empty).
 
     :param src: Source file.
     :param dst: Destination file.
+    :param rename: List of renamed datasets.
+    :param shallow: Do not check the contents of the datasets.
+    :param attrs: Check (existence of) attributes.
+    :param allow: List of datasets (regex) that are allowed to be different.
     """
-    a = g5.getdatapaths(src, root="/meta")
-    b = []
-    for path in a:
-        _, meta, lib, func = path.split("/")
-        if lib == "AthermalPreparation":
-            b.append(g5.join(meta, "Preparation", func, root=True))
-        elif lib == "AthermalQuasiStatic":
-            b.append(g5.join(meta, "AQS", func, root=True))
-        elif path == "/meta/ExtremeValue/RunAvalanche":
-            b.append("/meta/ExtremalAvalanche/Run")
-        elif path == "/meta/ExtremeValue/BranchRun":
-            b.append("/meta/ExtremalAvalanche/BranchExtremal")
-        elif lib == "ExtremeValue":
-            b.append(g5.join(meta, "Extremal", func, root=True))
-        else:
-            b.append(path)
-    g5.copy(src, dst, a, b)
-    storage.dump_overwrite(dst, "/param/data_version", data_version)
+    if rename is None:
+        diff = g5.compare(src, dst, shallow=shallow)
+    else:
+        diff, diff_a, diff_b = g5.compare_rename(
+            src, dst, rename=rename, regex=True, shallow=shallow, attrs=attrs, only_datasets=False
+        )
+        for key in diff_a:
+            diff[key] += diff_a[key]
+        for key in diff_b:
+            diff[key] += diff_b[key]
+
+    for key in allow:
+        for item in allow[key]:
+            diff[key] = [x for x in diff[key] if not re.match(item, x)]
+
+    for key in ["!=", "->"]:
+        assert len(diff[key]) == 0, f"Key '{key}' not empty: {diff[key]}"
 
 
-def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
+def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> pathlib.Path | None:
     """
     Upgrade data to the current version.
 
     :param filename: Input filename.
     :param temp_dir: Temporary directory in which any file may be created/overwritten.
-    :return: ``temp_file`` if the data is upgraded, ``None`` otherwise.
+    :return: New file in temporary directory if the data is upgraded, ``None`` otherwise.
     """
     with h5py.File(filename) as src:
-        assert not any(x in src for x in m_exclude + _libname_pre_v2(m_exclude))
+        assert not any(x in src for x in m_exclude)
         ver = get_data_version(src)
+        assert tag.greater_equal(ver, "2.0")
 
-    if tag.greater_equal(ver, "2.0"):
+    if tag.greater_equal(ver, "3.0"):
         return None
 
-    temp_file = temp_dir / "from_older.h5"
+    temp_file = temp_dir / "new_file.h5"
     with h5py.File(filename) as src, h5py.File(temp_file, "w") as dst:
-        g5.copy(src, dst, ["/param", "/init"])
-        _copy_metadata_pre_v2(src, dst)
+        g5.copy(src, dst, ["/meta", "/param"])
+        dst["/param/seed"] = src["/init/state"].attrs["seed"]
+        dst["/param/data_version"][...] = data_version
+
+        if "init" in src:
+            dst["/param/sigmay"] = [
+                src["init"]["sigmay"].attrs["mean"],
+                src["init"]["sigmay"].attrs["std"],
+            ]
+        else:
+            dst["/param/sigmay"] = (
+                [0.0, 1.0] if get_dynamics(dst["param"]) == "depinning" else [1.0, 0.3]
+            )
+
+        if "init" in src:
+            system = allocate_System(dst["param"], random_stress=False)
+            system.sigma = src["init"]["sigma"][...]
+            system.sigmay = src["init"]["sigmay"][...]
+            system.state = src["init"]["state"][...]
+            system.epsp = (
+                src["init"]["epsp"][...] if "epsp" in src["init"] else np.zeros_like(system.epsp)
+            )
+            system.t = src["init"]["t"][...] if "t" in src["init"] else 0.0
+        else:
+            system = allocate_System(dst["param"])
+            system.epsp = np.zeros_like(system.epsp)
+            system.t = 0.0
+
+        dump_snapshot(0, dst.create_group(m_name).create_group("snapshots"), system)
+        check_copy(src, dst, rename=[["/init", "/Preparation/snapshots"]], attrs=False)
 
     return temp_file
 
 
-def UpgradeData(cli_args=None, upgrade_function=_upgrade_data):
-    r"""
+def _upgrade_metadata(filename: pathlib.Path, temp_dir: pathlib.Path) -> pathlib.Path | None:
+    """
+    Upgrade storage of metadata: encode a timestamp in the key.
+
+    .. note::
+
+        Since the original timestamp cannot be recovered, the timestamp is set to the current time.
+
+    :param filename: Input filename.
+    :param temp_dir: Temporary directory in which any file may be created/overwritten.
+    :return: New file in temporary directory if the data is upgraded, ``None`` otherwise.
+    """
+    temp_file = temp_dir / "new_meta.h5"
+    with h5py.File(filename) as src, h5py.File(temp_file, "w") as dst:
+        groups = [i for i in src]
+        if "meta" in groups:
+            groups.remove("meta")
+        g5.copy(src, dst, groups)
+
+        known = [
+            "Preparation/Generate",
+            "Preparation/Run",
+            "Extremal/BranchPreparation",
+            "Extremal/Run",
+            "ExtremalAvalanche/BranchExtremal",
+            "ExtremalAvalanche/Run",
+            "Thermal/BranchPreparation",
+            "Thermal/Run",
+            "AQS/BranchPreparation",
+            "AQS/Run",
+        ]
+
+        in_src = [i.split("/meta/")[1] for i in g5.getdatapaths(src, root="/meta")]
+
+        for key in known:
+            if key in in_src:
+                g5.copy(src, dst, f"/meta/{key}", tools.path_meta(*key.split("/")))
+
+        for key in in_src:
+            if key not in known:
+                warnings.warn(f"Unknown metadata key: {key}")
+                stamp = datetime.now().strftime("%Y-%m-%d_%H:%M:%S.%f")
+                g5.copy(src, dst, f"/meta/{key}", f"/meta/{stamp}_{key}")
+
+    return temp_file
+
+
+def UpgradeData(
+    cli_args: list = None,
+    myname: str = m_name,
+    upgrade_function=_upgrade_data,
+    combine: bool = False,
+) -> None:
+    """
     Upgrade data to the current version.
     """
 
@@ -221,30 +312,50 @@ def UpgradeData(cli_args=None, upgrade_function=_upgrade_data):
 
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("--no-bak", action="store_true", help="Do not backup before modifying")
-    parser.add_argument("files", type=pathlib.Path, nargs="*", help="File (overwritten)")
+    if combine:
+        parser.add_argument("--insert", type=pathlib.Path, help="Extra data to insert")
+        parser.add_argument("file", type=pathlib.Path, help="File (overwritten)")
+    else:
+        parser.add_argument("files", type=pathlib.Path, nargs="*", help="File (overwritten)")
 
     args = tools._parse(parser, cli_args)
-    assert all([f.is_file() for f in args.files]), "File not found"
-    assert args.no_bak or not any([(f.parent / (f.name + ".bak")).exists() for f in args.files])
+    if combine:
+        files = [args.file]
+    else:
+        files = args.files
+
+    assert all([f.is_file() for f in files]), "File not found"
+    assert args.no_bak or not any([(f.parent / (f.name + ".bak")).exists() for f in files])
     assert args.develop or not tag.has_uncommitted(version), "Uncommitted changes"
 
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_dir = pathlib.Path(temp_dir)
-        pbar = tqdm.tqdm(args.files)
+        pbar = tqdm.tqdm(files)
         for filename in pbar:
             pbar.set_description(str(filename))
             pbar.refresh()
-            temp_file = upgrade_function(filename, temp_dir)
+
+            if combine:
+                temp_file = upgrade_function(filename, temp_dir, args.insert)
+            else:
+                temp_file = upgrade_function(filename, temp_dir)
+
             if temp_file is None:
                 continue
+
+            temp_file = _upgrade_metadata(temp_file, temp_dir)
+
+            with h5py.File(temp_file, "a") as file:
+                tools.create_check_meta(file, tools.path_meta(myname, funcname), dev=args.develop)
+
             if not args.no_bak:
                 bakname = filename.parent / (filename.name + ".bak")
                 shutil.copy2(filename, bakname)
             shutil.copy2(temp_file, filename)
 
 
-def VerifyData(cli_args=None):
-    r"""
+def VerifyData(cli_args: list = None) -> None:
+    """
     Check that the data is of the correct version.
     Filenames of incorrect files are printed to stdout.
     """
@@ -278,22 +389,59 @@ def VerifyData(cli_args=None):
     print("\n".join(list(map(str, ret))))
 
 
-def Generate(cli_args=None):
+def dump_snapshot(index: int, group: h5py.Group, system: epm.SystemClass):
     """
-    Generate IO file of the following structure::
-
-        |-- param   # ensemble parameters
-        |   |-- alpha
-        |   |-- shape
-        |   `-- interactions
-        `-- init    # initial realisation -> use "Run" to fill
-            |-- sigma
-            |-- sigmay
-            `-- state
+    Add/overwrite snapshot of the current state (fully recoverable).
 
     .. note::
 
-        You can take `t` and `epsp` equal to zero.
+        The snapshot is added to a multi-dimensional dataset containing all snapshots.
+
+    :param index: Index of the snapshot to overwrite.
+    :param group: Group to store the snapshot in.
+    :param system: System.
+    """
+    with g5.ExtendableSlice(group, "epsp", system.shape, np.float64) as dset:
+        dset[index] = system.epsp
+    with g5.ExtendableSlice(group, "sigma", system.shape, np.float64) as dset:
+        dset[index] = system.sigma
+    with g5.ExtendableSlice(group, "sigmay", system.shape, np.float64) as dset:
+        dset[index] = system.sigmay
+    with g5.ExtendableList(group, "state", np.uint64) as dset:
+        dset[index] = system.state
+    with g5.ExtendableList(group, "t", np.float64) as dset:
+        dset[index] = system.t
+
+
+def load_snapshot(index: int, group: h5py.Group, system: epm.SystemClass) -> epm.SystemClass:
+    """
+    Recover system from a snapshot.
+
+    :param index: Index of the snapshot to read (``None`` if snapshots are plain datasets).
+    :param group: Group of the snapshots.
+    :param system: System (modified).
+    :return: System (modified).
+    """
+    if index is None:
+        system.epsp = group["epsp"][...]
+        system.sigma = group["sigma"][...]
+        system.sigmay = group["sigmay"][...]
+        system.t = group["t"][...]
+        system.state = group["state"][...]
+        return system
+
+    system.epsp = group["epsp"][index, ...]
+    system.sigma = group["sigma"][index, ...]
+    system.sigmay = group["sigmay"][index, ...]
+    system.t = group["t"][index]
+    system.state = group["state"][index]
+    return system
+
+
+def Generate(cli_args: list = None) -> None:
+    """
+    Generate IO files, and compute and write initial states.
+    In addition, write common simulation files.
     """
 
     class MyFmt(
@@ -326,7 +474,6 @@ def Generate(cli_args=None):
         type=str,
         choices=["default", "depinning"],
         help="Dynamics",
-        default="depinning",
     )
     parser.add_argument("--all", action="store_true", help="Generate a suggestion of runs")
 
@@ -335,83 +482,48 @@ def Generate(cli_args=None):
     args = tools._parse(parser, cli_args)
     args.outdir.mkdir(parents=True, exist_ok=True)
 
+    files = [args.outdir / f"id={i:04d}.h5" for i in range(args.start, args.start + args.nsim)]
+    assert not any([i.exists() for i in files])
+
     n = np.prod(args.shape)
-    assert not any(
-        [
-            (args.outdir / f"id={i:04d}.h5").exists()
-            for i in range(args.start, args.start + args.nsim)
-        ]
-    )
     files = []
     for i in range(args.start, args.start + args.nsim):
         files += [f"id={i:04d}.h5"]
         seed = i * n
         with h5py.File(args.outdir / files[-1], "w") as file:
-            tools.create_check_meta(file, f"/meta/Preparation/{funcname}", dev=args.develop)
-
+            tools.create_check_meta(file, tools.path_meta(m_name, funcname), dev=args.develop)
             param = file.create_group("param")
             param["alpha"] = args.alpha
             param["shape"] = args.shape
             param["dynamics"] = args.dynamics
             param["interactions"] = args.interactions
             param["data_version"] = data_version
+            param["sigmay"] = [0.0, 1.0] if args.dynamics == "depinning" else [1.0, 0.3]
+            param["seed"] = seed
 
-            init = file.create_group("init")
-            init.create_dataset("sigma", shape=args.shape, dtype=np.float64)
-
-            init.create_dataset("sigmay", shape=args.shape, dtype=np.float64)
-
-            if args.dynamics == "depinning":
-                init["sigmay"].attrs["mean"] = 0.0
-                init["sigmay"].attrs["std"] = 1.0
-            else:
-                init["sigmay"].attrs["mean"] = 1.0
-                init["sigmay"].attrs["std"] = 0.3
-
-            init.create_dataset("state", shape=[], dtype=np.uint64)
-            init["state"].attrs["seed"] = seed
-
-    exec = "Preparation_Run"
-    commands = [f"{exec} {f}" for f in files]
-    shelephant.yaml.dump(args.outdir / "commands_run.yaml", commands, force=True)
+            system = allocate_System(file["param"])
+            system.epsp = np.zeros_like(system.epsp)
+            system.t = 0.0
+            dump_snapshot(0, file.create_group(m_name).create_group("snapshots"), system)
 
     if not args.all:
         return
 
     assert len(os.path.split(args.outdir)) > 1
 
-    if args.dynamics == "depinning":
-        sigmay_mean = 0
-        sigmay_std = 1
-    else:
-        sigmay_mean = 1
-        sigmay_std = 0.3
-
     for name in ["AQS", "Extremal"]:
         base = args.outdir / ".." / name
         base.mkdir(parents=True, exist_ok=True)
 
-        exec = f"{name}_BranchPreparation --sigmay {sigmay_mean:.1f} {sigmay_std:.1f}"
-        commands = [f"{exec} ../{args.outdir.name}/{f} {f}" for f in files]
+        exe = f"{name}_BranchPreparation"
+        commands = [f"{exe} ../{args.outdir.name}/{f} {f}" for f in files]
         shelephant.yaml.dump(base / "commands_branch.yaml", commands, force=True)
 
-        exec = f"{name}_Run"
+        exe = f"{name}_Run"
         if name == "Extremal":
-            commands = [f"{exec} -n 100 {f}" for f in files]
+            commands = [f"{exe} -n 100 {f}" for f in files]
         else:
-            commands = [f"{exec} {f}" for f in files]
-        shelephant.yaml.dump(base / "commands_run.yaml", commands, force=True)
-
-    for name in ["ExtremalAvalanche"]:
-        base = args.outdir / ".." / name
-        base.mkdir(parents=True, exist_ok=True)
-
-        exec = f"{name}_BranchExtremal"
-        commands = [f"{exec} ../Extremal/{f} {f}" for f in files]
-        shelephant.yaml.dump(base / "commands_branch.yaml", commands, force=True)
-
-        exec = f"{name}_Run"
-        commands = [f"{exec} -n 300 {f}" for f in files]
+            commands = [f"{exe} {f}" for f in files]
         shelephant.yaml.dump(base / "commands_run.yaml", commands, force=True)
 
     name = "Thermal"
@@ -435,73 +547,10 @@ def Generate(cli_args=None):
         base = args.outdir / ".." / name / key
         base.mkdir(parents=True, exist_ok=True)
 
-        exec = f"{name}_BranchPreparation --sigmay {sigmay_mean:.1f} {sigmay_std:.1f}"
-        commands = [f"{exec} ../../{args.outdir.name}/{f} {f} --temperature {temp}" for f in files]
+        exe = f"{name}_BranchPreparation"
+        commands = [f"{exe} ../../{args.outdir.name}/{f} {f} --temperature {temp}" for f in files]
         shelephant.yaml.dump(base / "commands_branch.yaml", commands, force=True)
 
-        exec = f"{name}_Run"
-        commands = [f"{exec} -n 100 {f}" for f in files]
+        exe = f"{name}_Run"
+        commands = [f"{exe} -n 100 {f}" for f in files]
         shelephant.yaml.dump(base / "commands_run.yaml", commands, force=True)
-
-
-def Run(cli_args=None):
-    """
-    Initialize system, and store state.
-    """
-
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
-
-    funcname = inspect.getframeinfo(inspect.currentframe()).function
-    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
-    parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
-
-    parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
-    parser.add_argument("-v", "--version", action="version", version=version)
-    parser.add_argument("file", type=pathlib.Path, help="Input/output file")
-
-    args = tools._parse(parser, cli_args)
-    assert args.file.exists()
-
-    with h5py.File(args.file, "a") as file:
-        tools.create_check_meta(file, f"/meta/Preparation/{funcname}", dev=args.develop)
-        system = allocate_System(file)
-        init = file["init"]
-        init["sigma"][...] = system.sigma
-        init["sigmay"][...] = system.sigmay
-        init["state"][...] = system.state
-
-
-def dump_restart(restart: h5py.Group, system):
-    """
-    Dump system state to a restart group.
-
-    :param restart: Restart group.
-    :param system: System (not modified).
-    """
-    storage.dump_overwrite(restart, "epsp", system.epsp)
-    storage.dump_overwrite(restart, "sigma", system.sigma)
-    storage.dump_overwrite(restart, "sigmay", system.sigmay)
-    storage.dump_overwrite(restart, "t", system.t)
-    storage.dump_overwrite(restart, "state", system.state)
-    restart.file.flush()
-
-
-def load_restart(restart: h5py.Group, system):
-    """
-    Load system state from a restart group.
-
-    :param restart: Restart group.
-    :param system: System (modified).
-    :return: System (modified).
-    """
-    system.epsp = restart["epsp"][...]
-    system.sigma = restart["sigma"][...]
-    system.sigmay = restart["sigmay"][...]
-    system.t = restart["t"][...]
-    system.state = restart["state"][...]
-    return system

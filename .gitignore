@@ -1,3 +1,6 @@
+tests/output_*
+tests/data_version=*
+
 _version.py
 
 # Byte-compiled / optimized / DLL files
