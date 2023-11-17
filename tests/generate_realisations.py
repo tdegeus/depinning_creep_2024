@@ -71,5 +71,7 @@ if __name__ == "__main__":
             "Extremal.h5",
             "Extremal_info.h5",
             "Extremal_structure.h5",
+            "ExtremalAvalanche.h5",
+            "ExtremalAvalanche_info.h5",
         ]:
             os.rename(res, root / res)
