@@ -12,6 +12,7 @@ root = pathlib.Path(__file__).parent.parent.absolute()
 if (root / "mycode_thermal_epm" / "_version.py").exists():
     sys.path.insert(0, str(root))
 
+from mycode_thermal_epm import AQS  # noqa: E402
 from mycode_thermal_epm import Thermal  # noqa: E402
 from mycode_thermal_epm import Preparation  # noqa: E402
 from mycode_thermal_epm import Extremal  # noqa: E402
@@ -41,6 +42,10 @@ if __name__ == "__main__":
         os.rename("id=0000.h5", "Preparation.h5")
         Preparation.Run(["--dev", "Preparation.h5"])
 
+        AQS.BranchPreparation(["--dev", "Preparation.h5", "AQS.h5", "--sigmay", 1.0, 0.3])
+        AQS.Run(["--dev", "-n", 200, "AQS.h5"])
+        AQS.EnsembleInfo(["--dev", "-o", "AQS_info.h5", "AQS.h5"])
+
         Thermal.BranchPreparation(
             ["--dev", "Preparation.h5", "Thermal.h5", "--sigmay", 1.0, 0.3, "--temperature", 0.1]
         )
@@ -64,6 +69,8 @@ if __name__ == "__main__":
 
         for res in [
             "Preparation.h5",
+            "AQS.h5",
+            "AQS_info.h5",
             "Thermal.h5",
             "Thermal_info.h5",
             "Thermal_structure.h5",
