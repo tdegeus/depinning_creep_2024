@@ -92,7 +92,10 @@ def _upgrade_data(
         group.attrs["preparation"] = 100 * N
         group.attrs["interval"] = 100 * N
 
-        if np.all(src["restart"]["epsp"][...] > group["epsp"][-1, ...]):
+        if "restart" not in src:
+            dst[myname].create_group("lock")
+            logging.warning(f"No restart found: {filename}")
+        elif np.all(src["restart"]["epsp"][...] > group["epsp"][-1, ...]):
             system = allocate_System(dst, -1, myname)
             system = Preparation.load_snapshot(None, src["restart"], system)
             dump_snapshot(group["S"].size, group, system, 0, -1)
