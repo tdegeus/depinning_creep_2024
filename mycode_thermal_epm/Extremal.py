@@ -46,14 +46,13 @@ def _upgrade_data(
         n = src["ExtremalAvalanche"]["idx"].size
         index_snapshot = -1
 
-        if np.isclose(dst[m_name]["snapshots"]["t"][i], t) and np.all(
-            src["restart"]["epsp"][...] > dst[m_name]["snapshots"]["epsp"][-1, ...]
-        ):
+        group = dst[m_name]["snapshots"]
+        if np.isclose(group["t"][i], t) and src["restart"]["t"][...] > group["t"][-1]:
             # presume that this snapshot was at the end of the registered avalanche
             system = Thermal.allocate_System(dst, -1, m_name)
             system = Preparation.load_snapshot(None, src["restart"], system)
-            index_snapshot = dst[m_name]["snapshots"]["S"].size
-            Thermal.dump_snapshot(index_snapshot, dst[m_name]["snapshots"], system, n, 0)
+            index_snapshot = group["S"].size
+            Thermal.dump_snapshot(index_snapshot, group, system, n, 0)
         else:
             logging.warning(f"Restart of avalanche not possible: {filename}")
 
