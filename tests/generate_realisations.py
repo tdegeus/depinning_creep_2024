@@ -20,6 +20,7 @@ from mycode_thermal_epm import ExtremalAvalanche  # noqa: E402
 
 
 if __name__ == "__main__":
+    assert Thermal.data_version == "2.0"
     path = pathlib.Path(__file__).parent / f"data_version={Thermal.data_version}"
     path.mkdir(parents=True, exist_ok=True)
 
