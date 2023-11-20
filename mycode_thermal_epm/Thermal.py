@@ -1,10 +1,10 @@
 import argparse
 import inspect
+import logging
 import pathlib
 import sys
 import textwrap
 import time
-import warnings
 
 import enstat
 import GooseEPM as epm
@@ -100,7 +100,7 @@ def _upgrade_data(
             pass
         else:
             dst[myname].create_group("lock")
-            warnings.warn(f"Restart not possible: {filename}")
+            logging.warning(f"Restart not possible: {filename}")
 
         Preparation.check_copy(src, dst, rename=rename, allow={"->": ["/restart"]})
 

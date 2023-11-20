@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import argparse
 import inspect
+import logging
 import os
 import pathlib
 import re
 import shutil
 import tempfile
 import textwrap
-import warnings
 from datetime import datetime
 
 import enstat
@@ -282,7 +282,7 @@ def _upgrade_metadata(filename: pathlib.Path, temp_dir: pathlib.Path) -> pathlib
 
         for key in in_src:
             if key not in known:
-                warnings.warn(f"Unknown metadata key: {key}")
+                logging.warning(f"Unknown metadata key: {key}", RuntimeWarning)
                 stamp = datetime.now().strftime("%Y-%m-%d_%H:%M:%S.%f")
                 g5.copy(src, dst, f"/meta/{key}", f"/meta/{stamp}_{key}")
 

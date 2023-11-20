@@ -1,8 +1,8 @@
 import argparse
 import inspect
+import logging
 import pathlib
 import textwrap
-import warnings
 
 import enstat
 import GooseEPM as epm
@@ -55,7 +55,7 @@ def _upgrade_data(
             index_snapshot = dst[m_name]["snapshots"]["S"].size
             Thermal.dump_snapshot(index_snapshot, dst[m_name]["snapshots"], system, n, 0)
         else:
-            warnings.warn(f"Restart of avalanche not possible: {filename}")
+            logging.warning(f"Restart of avalanche not possible: {filename}")
 
         # only one avalanche was registered
         group = dst[m_name].create_group("avalanches")
