@@ -1,12 +1,14 @@
 import argparse
 import inspect
 import pathlib
+import sys
 import textwrap
 import time
 
 import enstat
 import GooseEPM as epm
 import GooseHDF5 as g5
+import GooseSLURM as slurm
 import h5py
 import numpy as np
 import tqdm
@@ -15,22 +17,11 @@ from . import Preparation
 from . import tag
 from . import tools
 from ._version import version
+from .Preparation import data_version
 
 f_info = "EnsembleInfo.h5"
 m_name = "AQS"
 m_exclude = ["Extremal", "ExtremalAvalanche", "Thermal"]
-
-
-def allocate_System(file: h5py.File):
-    param = file["param"]
-    restart = file["restart"]
-    opts = Preparation.default_options(file)
-    opts["loading"] = "spring"
-    opts["kframe"] = param["kframe"][...]
-    system = epm.allocate_System(**opts)
-    system = Preparation.load_restart(restart, system)
-    system.epsframe = restart["uframe"][...]
-    return system
 
 
 def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
@@ -42,18 +33,30 @@ def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
     :return: ``temp_file`` if the data is upgraded, ``None`` otherwise.
     """
     with h5py.File(filename) as src:
-        assert not any(x in src for x in m_exclude + Preparation._libname_pre_v2(m_exclude))
+        assert not any(x in src for x in m_exclude)
         ver = Preparation.get_data_version(src)
 
-    if tag.greater_equal(ver, "2.0"):
-        return None
+    assert tag.equal(ver, "2.0")
 
-    temp_file = temp_dir / "from_older.h5"
+    temp_file = temp_dir / "new_file.h5"
     with h5py.File(filename) as src, h5py.File(temp_file, "w") as dst:
-        if "AthermalQuasiStatic" in src:
-            g5.copy(src, dst, "/AthermalQuasiStatic", "/AQS")
-        g5.copy(src, dst, ["/param", "/restart"])
-        Preparation._copy_metadata_pre_v2(src, dst)
+        g5.copy(src, dst, ["/meta", "/param"])
+        dst["/param/seed"] = src["/restart/state"].attrs["seed"]
+        dst["/param/data_version"][...] = data_version
+
+        rename = [
+            ["/AQS/A", "/AQS/data/A"],
+            ["/AQS/S", "/AQS/data/S"],
+            ["/AQS/T", "/AQS/data/T"],
+            ["/AQS/sigma", "/AQS/data/sigma"],
+            ["/AQS/uframe", "/AQS/data/uframe"],
+            ["/AQS/restore", "/AQS/snapshots"],
+        ]
+        for entry in rename:
+            g5.copy(src, dst, *entry)
+
+        with g5.ExtendableList(dst["/AQS/snapshots"], "systemspanning", bool) as dset:
+            dset.append(np.ones(dst["/AQS/snapshots/step"].size, dtype=bool))
 
     return temp_file
 
@@ -62,18 +65,56 @@ def UpgradeData(cli_args=None):
     r"""
     Upgrade data to the current version.
     """
-    Preparation.UpgradeData(cli_args, _upgrade_data)
+    Preparation.UpgradeData(cli_args, m_name, _upgrade_data)
+
+
+def allocate_System(file: h5py.File, index: int) -> epm.SystemClass:
+    """
+    Allocate the system, and restore snapshot.
+
+    :param param: Opened file.
+    :param index: Index of the snapshot to load.
+    :return: System.
+    """
+    system = Preparation.allocate_System(
+        group=file["param"],
+        random_stress=False,
+        thermal=False,
+        loading="spring",
+        kframe=file["param"]["kframe"][...],
+    )
+    system = Preparation.load_snapshot(index, file[m_name]["snapshots"], system)
+    system.epsframe = file[m_name]["snapshots"]["uframe"][index]
+    return system
+
+
+def dump_snapshot(
+    index: int, group: h5py.Group, system: epm.SystemClass, step: int, systemspanning: bool
+) -> None:
+    """
+    Add/overwrite snapshot of the current state (fully recoverable).
+
+    :param index: Index of the snapshot to overwrite.
+    :param group: Group to store the snapshot in.
+    :param system: System.
+    :param step: Current AQS step.
+    :param systemspanning: If snapshot follows a system-spanning event.
+    """
+    Preparation.dump_snapshot(index, group, system)
+
+    with g5.ExtendableList(group, "uframe") as dset:
+        dset[index] = system.epsframe
+
+    with g5.ExtendableList(group, "step") as dset:
+        dset[index] = step
+
+    with g5.ExtendableList(group, "systemspanning") as dset:
+        dset[index] = systemspanning
 
 
 def BranchPreparation(cli_args=None):
     r"""
     Branch from prepared stress state and add parameters.
-
-    1.  Copy ``/param``.
-        Add ``/param/kframe``, ``/param/sigmay``.
-
-    2.  Copy ``/init`` to ``/restart``.
-        Add ``/restart/epsp``, ``/restart/step``, and ``/restart/uframe``.
     """
 
     class MyFmt(
@@ -89,9 +130,6 @@ def BranchPreparation(cli_args=None):
 
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("--kframe", type=float, help="Frame stiffness (default 1 / L**2)")
-    parser.add_argument(
-        "--sigmay", type=float, nargs=2, required=True, help="Mean and std of sigmay"
-    )
     parser.add_argument("input", type=pathlib.Path, help="Input file (read-only)")
     parser.add_argument("output", type=pathlib.Path, help="Output file (overwritten)")
 
@@ -102,32 +140,43 @@ def BranchPreparation(cli_args=None):
     with h5py.File(args.input) as src, h5py.File(args.output, "w") as dest:
         assert not any(m in src for m in m_exclude), "Wrong file type"
         g5.copy(src, dest, ["/meta", "/param"])
-        g5.copy(src, dest, "/init", "/restart")
-        dest["restart"]["epsp"] = np.zeros(src["param"]["shape"][...], dtype=np.float64)
-        dest["restart"]["step"] = 0
-        dest["restart"]["uframe"] = 0.0
-        dest["restart"]["t"] = 0.0
-        dest["param"]["sigmay"] = args.sigmay
+        tools.create_check_meta(dest, tools.path_meta(m_name, funcname), dev=args.develop)
+
+        g5.copy(src, dest, f"/{Preparation.m_name}/snapshots", f"/{m_name}/snapshots")
+        group = dest[m_name]["snapshots"]
+        g5.ExtendableList(group, "step", np.int64).setitem(index=0, data=0).flush()
+        g5.ExtendableList(group, "uframe", np.float64).setitem(index=0, data=0).flush()
+        g5.ExtendableList(group, "systemspanning", bool).setitem(index=0, data=True).flush()
+
         if args.kframe is not None:
             dest["param"]["kframe"] = args.kframe
         else:
             dest["param"]["kframe"] = 1.0 / (np.min(dest["param"]["shape"][...]) ** 2)
-        tools.create_check_meta(dest, f"/meta/{m_name}/{funcname}", dev=args.develop)
+
+        group = dest[m_name].create_group("data")
+        with g5.ExtendableList(group, "uframe", np.float64) as dset:
+            dset[0] = 0
+        with g5.ExtendableList(group, "sigma", np.float64) as dset:
+            dset[0] = 0
+        with g5.ExtendableList(group, "T", np.float64) as dset:
+            dset[0] = 0
+        with g5.ExtendableList(group, "S", np.int64) as dset:
+            dset[0] = 0
+        with g5.ExtendableList(group, "A", np.int64) as dset:
+            dset[0] = 0
 
 
 def Run(cli_args=None):
     r"""
     Run simulation for a fixed number of steps.
 
-    -   Write global output per step (``uframe``, ``sigma``, ``T``, ``S``, ``A``) in
-        ``/AQS``.
+    -   Write global output per step (``uframe``, ``sigma``, ``T``, ``S``, ``A``).
 
-    -   Write state to ``/AQS/restore`` every time a system-spanning event occurs
-        (can be used to uniquely restore the system in this state).
-
-    -   Backup state every ``backup_interval`` minutes by overwriting ``/restart``.
-        (can be used to uniquely restore the system in this state).
+    -   Write snapshot every time a system-spanning event occurs.
+        Added temporary snapshots based on ``--buffer`` to be able to restart.
     """
+    tic = time.time()
+    ticb = time.time()
 
     class MyFmt(
         argparse.RawDescriptionHelpFormatter,
@@ -143,39 +192,46 @@ def Run(cli_args=None):
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("-v", "--version", action="version", version=version)
     parser.add_argument("-n", "--nstep", type=int, default=5000, help="Total #load-steps to run")
-    parser.add_argument("--backup-interval", default=5, type=int, help="Backup interval in minutes")
+    parser.add_argument(
+        "--buffer",
+        type=slurm.duration.asSeconds,
+        default=30 * 60,
+        help="Write interval to write partial (restartable) data",
+    )
+    parser.add_argument(
+        "--walltime",
+        type=slurm.duration.asSeconds,
+        default=sys.maxsize,
+        help="Walltime at which to stop",
+    )
+    parser.add_argument(
+        "--save-duration",
+        type=slurm.duration.asSeconds,
+        default=0,
+        help="Duration to reserve for saving data",
+    )
     parser.add_argument("file", type=pathlib.Path, help="Input/output file")
 
     args = tools._parse(parser, cli_args)
+    args.walltime -= args.save_duration
     assert args.file.exists()
 
     with h5py.File(args.file, "a") as file:
-        tools.create_check_meta(file, f"/meta/{m_name}/{funcname}", dev=args.develop)
-        system = allocate_System(file)
-        restart = file["restart"]
+        tools.create_check_meta(file, tools.path_meta(m_name, funcname), dev=args.develop)
 
-        if m_name not in file:
-            assert not any(m in file for m in m_exclude), "Wrong file type"
-            res = file.create_group(m_name)
-            restore = res.create_group("restore")
-            start = 0
-        else:
-            res = file[m_name]
-            restore = res["restore"]
-            start = restart["step"][...] + 1
-            # previous run was interrupted
-            # if output/restore fields exceed restart step; remove excess
-            for key in ["uframe", "sigma", "T", "S", "A"]:
-                res[key].resize((start,))
-            if "step" in restore:
-                n = np.sum(restore["step"][...] <= start)
-                for key in ["uframe", "state", "step"]:
-                    restore[key].resize((n,))
-                for key in ["epsp", "sigma", "sigmay"]:
-                    restore[key].resize((n, *file["param"]["shape"][...]))
+        data = file[m_name]["data"]
+        snap = file[m_name]["snapshots"]
+        index_snapshot = snap["state"].size - 1
+        system = allocate_System(file, index_snapshot)
+        start = snap["step"][index_snapshot] + 1
+        if snap["systemspanning"][index_snapshot]:
+            index_snapshot += 1
+        # if output/restore fields exceed restart step; remove excess
+        for key in ["uframe", "sigma", "T", "S", "A"]:
+            data[key].resize((start,))
 
-        tic = time.time()
-        pbar = tqdm.tqdm(range(start, start + args.nstep), desc=str(args.file))
+        pbar = tqdm.tqdm(range(start, args.nstep), desc=str(args.file))
+        duration = enstat.scalar()
 
         for step in pbar:
             pbar.refresh()
@@ -186,42 +242,34 @@ def Run(cli_args=None):
             if step % 2 == 1:
                 system.shiftImposedShear()  # leaves >= 1 block unstable
             else:
+                if duration.mean() > args.walltime - (time.time() - tic):
+                    return
+                tici = time.time()
                 system.relaxAthermal()  # leaves 0 blocks unstable
+                duration += time.time() - tici
+
+            if time.time() - tic >= args.walltime:
+                return
 
             # global output
-            with g5.ExtendableList(res, "uframe", np.float64) as dset:
-                dset.append(system.epsframe)
-            with g5.ExtendableList(res, "sigma", np.float64) as dset:
-                dset.append(system.sigmabar)
-            with g5.ExtendableList(res, "T", np.float64) as dset:
-                dset.append(system.t - t0)
-            with g5.ExtendableList(res, "S", np.int64) as dset:
-                dset.append(np.sum(system.nfails - n))
-            with g5.ExtendableList(res, "A", np.int64) as dset:
-                dset.append(np.sum(system.nfails != n))
+            with g5.ExtendableList(data, "uframe") as dset:
+                dset[step] = system.epsframe
+            with g5.ExtendableList(data, "sigma") as dset:
+                dset[step] = system.sigmabar
+            with g5.ExtendableList(data, "T") as dset:
+                dset[step] = system.t - t0
+            with g5.ExtendableList(data, "S") as dset:
+                dset[step] = np.sum(system.nfails - n)
+            with g5.ExtendableList(data, "A") as dset:
+                dset[step] = np.sum(system.nfails != n)
 
             # full state
             if np.sum(system.nfails != n) == system.size:
-                with g5.ExtendableSlice(restore, "epsp", system.shape, np.float64) as dset:
-                    dset += system.epsp
-                with g5.ExtendableSlice(restore, "sigma", system.shape, np.float64) as dset:
-                    dset += system.sigma
-                with g5.ExtendableSlice(restore, "sigmay", system.shape, np.float64) as dset:
-                    dset += system.sigmay
-                with g5.ExtendableList(restore, "uframe", np.float64) as dset:
-                    dset.append(system.epsframe)
-                with g5.ExtendableList(restore, "state", np.uint64) as dset:
-                    dset.append(system.state)
-                with g5.ExtendableList(restore, "step", np.uint64) as dset:
-                    dset.append(step)
-
-            # full state
-            if step == start + args.nstep - 1 or time.time() - tic > args.backup_interval * 60:
-                tic = time.time()
-                Preparation.dump_restart(restart, system)
-                restart["uframe"][...] = system.epsframe
-                restart["step"][...] = step
-                file.flush()
+                dump_snapshot(index_snapshot, snap, system, step, True)
+                index_snapshot += 1
+            elif step == args.nstep - 1 or time.time() - ticb > args.buffer:
+                dump_snapshot(index_snapshot, snap, system, step, False)
+                ticb = time.time()
 
 
 def _norm_uframe(file: h5py.File) -> float:
@@ -246,7 +294,7 @@ def _steady_state(file: h5py.File) -> int:
     kframe = file["/param/kframe"][...]
     u0 = (kframe + 1.0) / kframe  # mu = 1
 
-    res = file[m_name]
+    res = file[m_name]["data"]
     uframe = res["uframe"][...] / u0
     sigma = res["sigma"][...]  # mu, mean(sigmay) = 1
 
@@ -304,7 +352,7 @@ def EnsembleInfo(cli_args=None):
                     assert not any(m in file for m in m_exclude), "Wrong file type"
                     continue
 
-                res = file[m_name]
+                res = file[m_name]["data"]
                 uframe = res["uframe"][...] / u0
                 sigma = res["sigma"][...]
                 i = _steady_state(file)
@@ -325,8 +373,12 @@ def EnsembleInfo(cli_args=None):
                 plastic["ell"] += np.sqrt(res["A"][i + 1 : end : 2]).tolist()
                 plastic["T"] += res["T"][i + 1 : end : 2].tolist()
 
-                if "sigma" in file[m_name]["restore"]:
-                    pdfx += Preparation.get_x(file, file[m_name]["restore"]).ravel()
+                if file[m_name]["snapshots"]["state"].size > 1:
+                    pdfx += Preparation.compute_x(
+                        dynamics=Preparation.get_dynamics(file),
+                        sigma=file[m_name]["snapshots"]["sigma"][1:, ...],
+                        sigmay=file[m_name]["snapshots"]["sigmay"][1:, ...],
+                    ).ravel()
 
         for key in elastic:
             output["/elastic/" + key] = elastic[key]
@@ -365,7 +417,7 @@ def Plot(cli_args=None):
 
     with h5py.File(args.file) as file:
         i = _steady_state(file)
-        res = file[m_name]
+        res = file[m_name]["data"]
         S = res["S"][i:].tolist()
         if "/restore/sigma" in res:
             x = Preparation.get_x(file, res["restore"])

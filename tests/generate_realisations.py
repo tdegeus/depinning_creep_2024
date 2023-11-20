@@ -20,8 +20,8 @@ from mycode_thermal_epm import ExtremalAvalanche  # noqa: E402
 
 
 if __name__ == "__main__":
-    root = pathlib.Path(__file__).parent / f"data_version={Thermal.data_version}"
-    root.mkdir(parents=True, exist_ok=True)
+    path = pathlib.Path(__file__).parent / f"data_version={Thermal.data_version}"
+    path.mkdir(parents=True, exist_ok=True)
 
     with shelephant.path.tempdir():
         Preparation.Generate(
@@ -52,9 +52,7 @@ if __name__ == "__main__":
         Thermal.Run(["--dev", "-n", 6, "--force-interval", "Thermal.h5"])
         Thermal.EnsembleInfo(["--dev", "-o", "Thermal_info.h5", "Thermal.h5"])
         Thermal.EnsembleStructure(["--dev", "-o", "Thermal_structure.h5", "Thermal.h5"])
-        Thermal.EnsembleDynamicAvalanches(
-            ["--dev", "-o", "Thermal_avalanches.h5", "Thermal_info.h5"]
-        )
+        Thermal.EnsembleAvalanches(["--dev", "-o", "Thermal_avalanches.h5", "Thermal_info.h5"])
 
         Extremal.BranchPreparation(["--dev", "Preparation.h5", "Extremal.h5", "--sigmay", 1.0, 0.3])
         Extremal.Run(["--dev", "-n", 6, "--force-interval", "Extremal.h5"])
@@ -81,4 +79,4 @@ if __name__ == "__main__":
             "ExtremalAvalanche.h5",
             "ExtremalAvalanche_info.h5",
         ]:
-            os.rename(res, root / res)
+            os.rename(res, path / res)
