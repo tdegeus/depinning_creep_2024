@@ -103,21 +103,23 @@ class MyThermal(unittest.TestCase):
                         key = f"/Thermal/snapshots/{variable}"
                         self.assertTrue(np.allclose(a[key][...], b[key][...]))
 
-                    for variable in ["idx", "t", "t0"]:
-                        key = f"/Thermal/avalanches/{variable}"
-                        self.assertTrue(np.allclose(a[key][...], b[key][...]))
+                    if "avalanches" in a["Thermal"]:
+                        for variable in ["idx", "t", "t0"]:
+                            key = f"/Thermal/avalanches/{variable}"
+                            self.assertTrue(np.allclose(a[key][...], b[key][...]))
 
                     index = a["Thermal"]["snapshots"]["index_avalanche"][...]
                     index_snapshot = np.arange(index.size)[index > 0] - 1
                     index_avalanche = index[index > 0]
                     index_avalanche = index_avalanche[index_snapshot >= 0]
                     index_snapshot = index_snapshot[index_snapshot >= 0]
-                    self.assertTrue(
-                        np.allclose(
-                            a["Thermal"]["avalanches"]["t0"][index_avalanche],
-                            a["Thermal"]["snapshots"]["t"][index_snapshot],
+                    if "avalanches" in a["Thermal"]:
+                        self.assertTrue(
+                            np.allclose(
+                                a["Thermal"]["avalanches"]["t0"][index_avalanche],
+                                a["Thermal"]["snapshots"]["t"][index_snapshot],
+                            )
                         )
-                    )
 
                 os.remove("sim.h5")
                 os.remove("res.h5")

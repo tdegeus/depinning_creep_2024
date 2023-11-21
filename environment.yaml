@@ -4,7 +4,7 @@ dependencies:
 - autodocsumm
 - click
 - enstat >=0.9.6
-- goosehdf5 >=0.23.0
+- goosehdf5 >=0.26.1
 - goosempl
 - gooseslurm
 - h5glance

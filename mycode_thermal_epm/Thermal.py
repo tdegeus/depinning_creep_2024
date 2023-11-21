@@ -56,19 +56,53 @@ def _upgrade_data(
         g5.copy(src, dst, ["/meta", "/param"])
         dst["/param/seed"] = src["/restart/state"].attrs["seed"]
         dst["/param/data_version"][...] = data_version
-        N = np.prod(dst["/param/shape"][...])
+        shape = dst["/param/shape"][...]
+        N = np.prod(shape)
 
-        # copy snapshots and avalanches
+        # copy snapshots
         rename = []
-        if myname == m_name:
-            rename.append([f"/{myname}/T", f"/{myname}/avalanches/t"])
-            rename.append([f"/{myname}/idx", f"/{myname}/avalanches/idx"])
-        for key in ["epsp", "sigma", "sigmay", "state", "t"]:
-            rename.append([f"/{myname}/{key}", f"/{myname}/snapshots/{key}"])
-        for entry in rename:
-            g5.copy(src, dst, *entry)
-        if f"/{myname}/idx_ignore" in src:
-            g5.copy(src, dst, f"/{myname}/idx_ignore", f"/{myname}/avalanches/idx_ignore")
+        group = dst.create_group(myname).create_group("snapshots")
+        n = src[myname]["t"].size
+        for name, dtype, islist in zip(
+            ["epsp", "sigma", "sigmay", "t", "state"],
+            [np.float64, np.float64, np.float64, np.float64, np.uint64],
+            [False, False, False, True, True],
+        ):
+            rename.append([f"/{myname}/{name}", f"/{myname}/snapshots/{name}"])
+            if islist:
+                with g5.ExtendableList(group, name, dtype) as dset:
+                    dset[...] = src[f"/{myname}/{name}"][...]
+            else:
+                with g5.ExtendableSlice(file=group, name=name, dtype=dtype, shape=shape) as dset:
+                    for i in range(n):
+                        dset[i, ...] = src[f"/{myname}/{name}"][i, ...]
+
+        # copy avalanches
+        if "T" in src[myname]:
+            group = dst[myname].create_group("avalanches")
+            if len(src[myname]["T"].shape) == 2:
+                n = src[myname]["T"].shape[0]
+                m = src[myname]["T"].shape[1]
+            else:
+                n = 1
+                m = src[myname]["T"].size
+
+            for oldname, name, dtype, islist in zip(
+                ["T", "idx", "idx_ignore"],
+                ["t", "idx", "idx_ignore"],
+                [np.float64, np.uint64, np.uint64],
+                [False, False, True],
+            ):
+                if oldname not in src[myname]:
+                    continue
+                rename.append([f"/{myname}/{oldname}", f"/{myname}/avalanches/{name}"])
+                if islist:
+                    with g5.ExtendableList(group, name, dtype) as dset:
+                        dset[...] = src[f"/{myname}/{oldname}"][...]
+                else:
+                    with g5.ExtendableSlice(file=group, name=name, dtype=dtype, shape=[m]) as dset:
+                        for i in range(n):
+                            dset[i, ...] = src[f"/{myname}/{oldname}"][i, ...]
 
         # add new datasets with minimal data
         n = dst[f"/{myname}/snapshots/t"].size
@@ -78,7 +112,7 @@ def _upgrade_data(
         with g5.ExtendableList(dst[f"/{myname}/snapshots"], "index_avalanche", np.int64) as dset:
             dset.append(-1 * np.ones(n, dtype=np.int64))
 
-        if myname == m_name:
+        if myname == m_name and "T" in src[myname]:
             group = dst[myname]["avalanches"]
             n = group["idx"].shape[0]
             with g5.ExtendableList(group, "index_snapshot", np.int64) as dset:
@@ -198,25 +232,26 @@ def BranchPreparation(cli_args: list = None, myname: str = m_name) -> None:
         g5.ExtendableList(group, "S", np.uint64).setitem(index=0, data=0).flush()
         g5.ExtendableList(
             file=group,
-            key="index_avalanche",
+            name="index_avalanche",
             dtype=np.int64,
-            desc=">= 0 if snapshot corresponds to start of avalanche",
+            attrs={"desc": ">= 0 if snapshot corresponds to start of avalanche"},
         ).setitem(index=0, data=-1).flush()
 
-        group = dest[myname].create_group("avalanches")
-        g5.ExtendableList(group, "S", np.uint64).setitem(index=0, data=0).flush()
-        g5.ExtendableList(group, "t0", np.float64).flush()
-        g5.ExtendableList(
-            file=group,
-            key="index_snapshot",
-            dtype=np.int64,
-            desc=">= 0 if snapshot at the last event is stored",
-        ).flush()
-        g5.ExtendableSlice(group, "idx", dtype=np.uint64, shape=[args.interval_avalanche])
-        if myname == m_name:
-            g5.ExtendableSlice(group, "t", dtype=np.float64, shape=[args.interval_avalanche])
-        else:
-            g5.ExtendableSlice(group, "xmin", dtype=np.float64, shape=[args.interval_avalanche])
+        if args.interval_avalanche > 0:
+            group = dest[myname].create_group("avalanches")
+            g5.ExtendableList(group, "S", np.uint64).setitem(index=0, data=0).flush()
+            g5.ExtendableList(group, "t0", np.float64).flush()
+            g5.ExtendableList(
+                file=group,
+                name="index_snapshot",
+                dtype=np.int64,
+                attrs={"desc": ">= 0 if snapshot at the last event is stored"},
+            ).flush()
+            g5.ExtendableSlice(group, "idx", dtype=np.uint64, shape=[args.interval_avalanche])
+            if myname == m_name:
+                g5.ExtendableSlice(group, "t", dtype=np.float64, shape=[args.interval_avalanche])
+            else:
+                g5.ExtendableSlice(group, "xmin", dtype=np.float64, shape=[args.interval_avalanche])
 
 
 def dump_snapshot(
@@ -354,10 +389,11 @@ def Run(cli_args: list = None, myname: str = m_name) -> None:
     class Method:
         def __init__(self, file: h5py.File):
             grp_snap = file[myname]["snapshots"]
-            grp_ava = file[myname]["avalanches"]
             self.interval_preparation = int(grp_snap.attrs["preparation"])
             self.interval_snapshot = int(grp_snap.attrs["interval"])
-            self.interval_avalanche = grp_ava["idx"].shape[1]
+            self.interval_avalanche = (
+                file[myname]["avalanches"]["idx"].shape[1] if "avalanches" in file[myname] else 0
+            )
             self.index_snapshot = grp_snap["S"].size - 1
             self.index_avalanche = int(grp_snap["index_avalanche"][self.index_snapshot])
             assert self.interval_avalanche > 0 or self.interval_snapshot > 0
@@ -382,7 +418,7 @@ def Run(cli_args: list = None, myname: str = m_name) -> None:
                 return self.next_snapshot()
             self.target = self.interval_avalanche
             self.index_snapshot = file[myname]["snapshots"]["S"].size
-            self.index_avalanche = file[myname]["avalanches"]["idx"].shape[0]
+            self.index_avalanche = file[myname]["avalanches"]["t0"].size
             return 0
 
         def increment(self, s: int) -> int:
@@ -398,7 +434,7 @@ def Run(cli_args: list = None, myname: str = m_name) -> None:
     with h5py.File(args.file, "a") as file:
         tools.create_check_meta(file, tools.path_meta(myname, funcname), dev=args.develop)
         grp_snap = file[myname]["snapshots"]
-        grp_ava = file[myname]["avalanches"]
+        grp_ava = file[myname]["avalanches"] if "avalanches" in file[myname] else None
         i = grp_snap["S"].size - 1
         s = int(grp_snap["S"][i])
         system = allocate_System(file, i, myname)

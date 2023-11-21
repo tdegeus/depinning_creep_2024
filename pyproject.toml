@@ -8,7 +8,7 @@ dependencies = [
   "enstat >=0.9.6",
   "GooseEYE >=0.7.1",
   "GooseEPM >=0.10.0",
-  "GooseHDF5 >=0.23.0",
+  "GooseHDF5 >=0.26.1",
   "h5py",
   "numpy",
   "tqdm"
