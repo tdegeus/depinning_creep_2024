@@ -39,7 +39,7 @@ def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
     assert tag.equal(ver, "2.0")
 
     with h5py.File(filename) as src:
-        if myname not in src:
+        if m_name not in src:
             return None
 
     temp_file = temp_dir / "new_file.h5"
