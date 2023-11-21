@@ -17,7 +17,7 @@ description = "Simple dataset management"
 dynamic = ["version"]
 name = "mycode_thermal_epm"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.10"
 
 [project.scripts]
 AQS_BranchPreparation = "mycode_thermal_epm.AQS:BranchPreparation"

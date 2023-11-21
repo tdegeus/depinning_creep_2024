@@ -55,7 +55,7 @@ def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
         for entry in rename:
             g5.copy(src, dst, *entry)
 
-        with g5.ExtendableList(dst["/AQS/snapshots"], "systemspanning", bool) as dset:
+        with g5.ExtendableList(dst["/AQS/snapshots"], "systemspanning", bool, chunks=(16,)) as dset:
             dset.append(np.ones(dst["/AQS/snapshots/step"].size, dtype=bool))
 
     return temp_file
@@ -144,9 +144,13 @@ def BranchPreparation(cli_args=None):
 
         g5.copy(src, dest, f"/{Preparation.m_name}/snapshots", f"/{m_name}/snapshots")
         group = dest[m_name]["snapshots"]
-        g5.ExtendableList(group, "step", np.int64).setitem(index=0, data=0).flush()
-        g5.ExtendableList(group, "uframe", np.float64).setitem(index=0, data=0).flush()
-        g5.ExtendableList(group, "systemspanning", bool).setitem(index=0, data=True).flush()
+        g5.ExtendableList(group, "step", np.int64, chunks=(16,)).setitem(index=0, data=0).flush()
+        g5.ExtendableList(group, "uframe", np.float64, chunks=(16,)).setitem(
+            index=0, data=0
+        ).flush()
+        g5.ExtendableList(group, "systemspanning", bool, chunks=(16,)).setitem(
+            index=0, data=True
+        ).flush()
 
         if args.kframe is not None:
             dest["param"]["kframe"] = args.kframe
@@ -154,15 +158,15 @@ def BranchPreparation(cli_args=None):
             dest["param"]["kframe"] = 1.0 / (np.min(dest["param"]["shape"][...]) ** 2)
 
         group = dest[m_name].create_group("data")
-        with g5.ExtendableList(group, "uframe", np.float64) as dset:
+        with g5.ExtendableList(group, "uframe", np.float64, chunks=(16,)) as dset:
             dset[0] = 0
-        with g5.ExtendableList(group, "sigma", np.float64) as dset:
+        with g5.ExtendableList(group, "sigma", np.float64, chunks=(16,)) as dset:
             dset[0] = 0
-        with g5.ExtendableList(group, "T", np.float64) as dset:
+        with g5.ExtendableList(group, "T", np.float64, chunks=(16,)) as dset:
             dset[0] = 0
-        with g5.ExtendableList(group, "S", np.int64) as dset:
+        with g5.ExtendableList(group, "S", np.int64, chunks=(16,)) as dset:
             dset[0] = 0
-        with g5.ExtendableList(group, "A", np.int64) as dset:
+        with g5.ExtendableList(group, "A", np.int64, chunks=(16,)) as dset:
             dset[0] = 0
 
 
@@ -191,7 +195,13 @@ def Run(cli_args=None):
 
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("-v", "--version", action="version", version=version)
-    parser.add_argument("-n", "--nstep", type=int, default=5000, help="Total #load-steps to run")
+    parser.add_argument(
+        "-n",
+        "--nstep",
+        type=int,
+        default=312 * 16,
+        help="Total #load-steps to run (save storage by using a multiple of 16)",
+    )
     parser.add_argument(
         "--buffer",
         type=slurm.duration.asSeconds,

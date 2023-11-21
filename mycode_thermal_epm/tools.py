@@ -94,3 +94,36 @@ def _check_overwrite_file(filepath: str, force: bool):
 
     if not click.confirm(f'Overwrite "{filepath}"?'):
         raise OSError("Cancelled")
+
+
+def default_chunks(shape):
+    if len(shape) == 1:
+        n = shape[0]
+        if n % 2 == 0:
+            if n < 128:
+                return (1, n)
+            else:
+                m = n // 128
+                return (1, int(n / m))
+    elif len(shape) == 2:
+        n = shape[1]
+        if shape[0] != n:
+            return True
+        if n % 2 == 0:
+            if n <= 8:
+                return (1, n, n)
+            elif n == 16:
+                return (1, 8, 16)
+            elif n == 32:
+                return (1, 4, 32)
+            elif n == 64:
+                return (1, 2, 64)
+            elif n.bit_count() == 1:
+                return (1, 1, 128)
+            elif n < 128:
+                return (1, 1, n)
+            else:
+                m = n // 128
+                return (1, 1, int(n / m))
+
+    return True

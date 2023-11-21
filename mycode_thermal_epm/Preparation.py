@@ -427,15 +427,16 @@ def dump_snapshot(index: int, group: h5py.Group, system: epm.SystemClass):
     :param group: Group to store the snapshot in.
     :param system: System.
     """
-    with g5.ExtendableSlice(group, "epsp", system.shape, np.float64) as dset:
+    kwargs = dict(shape=system.shape, dtype=np.float64, chunks=tools.default_chunks(system.shape))
+    with g5.ExtendableSlice(group, "epsp", **kwargs) as dset:
         dset[index] = system.epsp
-    with g5.ExtendableSlice(group, "sigma", system.shape, np.float64) as dset:
+    with g5.ExtendableSlice(group, "sigma", **kwargs) as dset:
         dset[index] = system.sigma
-    with g5.ExtendableSlice(group, "sigmay", system.shape, np.float64) as dset:
+    with g5.ExtendableSlice(group, "sigmay", **kwargs) as dset:
         dset[index] = system.sigmay
-    with g5.ExtendableList(group, "state", np.uint64) as dset:
+    with g5.ExtendableList(group, "state", np.uint64, chunks=(16,)) as dset:
         dset[index] = system.state
-    with g5.ExtendableList(group, "t", np.float64) as dset:
+    with g5.ExtendableList(group, "t", np.float64, chunks=(16,)) as dset:
         dset[index] = system.t
 
 
@@ -547,7 +548,7 @@ def Generate(cli_args: list = None) -> None:
 
         exe = f"{name}_Run"
         if name == "Extremal":
-            commands = [f"{exe} -n 100 {f}" for f in files]
+            commands = [f"{exe} -n 112 {f}" for f in files]
         else:
             commands = [f"{exe} {f}" for f in files]
         shelephant.yaml.dump(base / "commands_run.yaml", commands, force=True)
@@ -578,5 +579,5 @@ def Generate(cli_args: list = None) -> None:
         shelephant.yaml.dump(base / "commands_branch.yaml", commands, force=True)
 
         exe = f"{name}_Run"
-        commands = [f"{exe} -n 100 {f}" for f in files]
+        commands = [f"{exe} -n 112 {f}" for f in files]
         shelephant.yaml.dump(base / "commands_run.yaml", commands, force=True)

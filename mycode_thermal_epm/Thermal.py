@@ -63,6 +63,7 @@ def _upgrade_data(
         rename = []
         group = dst.create_group(myname).create_group("snapshots")
         n = src[myname]["t"].size
+        kwargs = dict(shape=shape, chunks=tools.default_chunks(shape))
         for name, dtype, islist in zip(
             ["epsp", "sigma", "sigmay", "t", "state"],
             [np.float64, np.float64, np.float64, np.float64, np.uint64],
@@ -70,10 +71,10 @@ def _upgrade_data(
         ):
             rename.append([f"/{myname}/{name}", f"/{myname}/snapshots/{name}"])
             if islist:
-                with g5.ExtendableList(group, name, dtype) as dset:
+                with g5.ExtendableList(group, name, dtype, chunks=(16,)) as dset:
                     dset[...] = src[f"/{myname}/{name}"][...]
             else:
-                with g5.ExtendableSlice(file=group, name=name, dtype=dtype, shape=shape) as dset:
+                with g5.ExtendableSlice(file=group, name=name, dtype=dtype, **kwargs) as dset:
                     for i in range(n):
                         dset[i, ...] = src[f"/{myname}/{name}"][i, ...]
 
@@ -87,6 +88,7 @@ def _upgrade_data(
                 n = 1
                 m = src[myname]["T"].size
 
+            kwargs = dict(shape=[m], chunks=tools.default_chunks([m]))
             for oldname, name, dtype, islist in zip(
                 ["T", "idx", "idx_ignore"],
                 ["t", "idx", "idx_ignore"],
@@ -97,29 +99,30 @@ def _upgrade_data(
                     continue
                 rename.append([f"/{myname}/{oldname}", f"/{myname}/avalanches/{name}"])
                 if islist:
-                    with g5.ExtendableList(group, name, dtype) as dset:
+                    with g5.ExtendableList(group, name, dtype, chunks=(16,)) as dset:
                         dset[...] = src[f"/{myname}/{oldname}"][...]
                 else:
-                    with g5.ExtendableSlice(file=group, name=name, dtype=dtype, shape=[m]) as dset:
+                    with g5.ExtendableSlice(file=group, name=name, dtype=dtype, **kwargs) as dset:
                         for i in range(n):
                             dset[i, ...] = src[f"/{myname}/{oldname}"][i, ...]
 
         # add new datasets with minimal data
         n = dst[f"/{myname}/snapshots/t"].size
-        with g5.ExtendableList(dst[f"/{myname}/snapshots"], "S", np.uint64) as dset:
+        g = dst[f"/{myname}/snapshots"]
+        with g5.ExtendableList(g, "S", np.uint64, chunks=(16,)) as dset:
             dset.append(np.zeros(n, dtype=np.uint64))
 
-        with g5.ExtendableList(dst[f"/{myname}/snapshots"], "index_avalanche", np.int64) as dset:
+        with g5.ExtendableList(g, "index_avalanche", np.int64, chunks=(16,)) as dset:
             dset.append(-1 * np.ones(n, dtype=np.int64))
 
         if myname == m_name and "T" in src[myname]:
             group = dst[myname]["avalanches"]
             n = group["idx"].shape[0]
-            with g5.ExtendableList(group, "index_snapshot", np.int64) as dset:
+            with g5.ExtendableList(group, "index_snapshot", np.int64, chunks=(16,)) as dset:
                 dset.append(-1 * np.ones(n, dtype=np.int64))
-            with g5.ExtendableList(group, "t0", np.float64) as dset:
+            with g5.ExtendableList(group, "t0", np.float64, chunks=(16,)) as dset:
                 dset.append(np.zeros(n, dtype=np.float64))
-            with g5.ExtendableList(group, "S", np.uint64) as dset:
+            with g5.ExtendableList(group, "S", np.uint64, chunks=(16,)) as dset:
                 dset.append(n * np.ones(n, dtype=np.uint64))
 
         group = dst[myname]["snapshots"]
@@ -229,29 +232,33 @@ def BranchPreparation(cli_args: list = None, myname: str = m_name) -> None:
         group = dest[myname]["snapshots"]
         group.attrs["preparation"] = args.interval_preparation
         group.attrs["interval"] = args.interval_snapshot
-        g5.ExtendableList(group, "S", np.uint64).setitem(index=0, data=0).flush()
+        g5.ExtendableList(group, "S", np.uint64, chunks=(16,)).setitem(index=0, data=0).flush()
         g5.ExtendableList(
             file=group,
             name="index_avalanche",
             dtype=np.int64,
+            chunks=(16,),
             attrs={"desc": ">= 0 if snapshot corresponds to start of avalanche"},
         ).setitem(index=0, data=-1).flush()
 
         if args.interval_avalanche > 0:
             group = dest[myname].create_group("avalanches")
-            g5.ExtendableList(group, "S", np.uint64).setitem(index=0, data=0).flush()
-            g5.ExtendableList(group, "t0", np.float64).flush()
+            g5.ExtendableList(group, "S", np.uint64, chunks=(16,)).setitem(index=0, data=0).flush()
+            g5.ExtendableList(group, "t0", np.float64, chunks=(16,)).flush()
             g5.ExtendableList(
                 file=group,
                 name="index_snapshot",
                 dtype=np.int64,
+                chunks=(16,),
                 attrs={"desc": ">= 0 if snapshot at the last event is stored"},
             ).flush()
-            g5.ExtendableSlice(group, "idx", dtype=np.uint64, shape=[args.interval_avalanche])
+            s = [args.interval_avalanche]
+            kwargs = dict(shape=s, chunks=tools.default_chunks(s))
+            g5.ExtendableSlice(group, "idx", dtype=np.uint64, **kwargs)
             if myname == m_name:
-                g5.ExtendableSlice(group, "t", dtype=np.float64, shape=[args.interval_avalanche])
+                g5.ExtendableSlice(group, "t", dtype=np.float64, **kwargs)
             else:
-                g5.ExtendableSlice(group, "xmin", dtype=np.float64, shape=[args.interval_avalanche])
+                g5.ExtendableSlice(group, "xmin", dtype=np.float64, **kwargs)
 
 
 def dump_snapshot(
@@ -374,7 +381,11 @@ def Run(cli_args: list = None, myname: str = m_name) -> None:
         help="Duration to reserve for saving data",
     )
     parser.add_argument(
-        "-n", "--snapshots", type=int, default=100, help="Total #snapshots to sample"
+        "-n",
+        "--snapshots",
+        type=int,
+        default=112,
+        help="Total #snapshots to sample (save storage by using a multiple of 16)",
     )
     parser.add_argument("file", type=pathlib.Path, help="Input/output file")
 

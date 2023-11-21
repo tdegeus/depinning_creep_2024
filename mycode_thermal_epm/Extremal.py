@@ -58,15 +58,16 @@ def _upgrade_data(
 
         # only one avalanche was registered
         group = dst[m_name].create_group("avalanches")
-        with g5.ExtendableSlice(group, "xmin", dtype=np.float64, shape=[n]) as dset:
+        kwargs = dict(shape=[n], chunks=tools.default_chunks([n]))
+        with g5.ExtendableSlice(group, "xmin", dtype=np.float64, **kwargs) as dset:
             dset[0, :] = src["ExtremalAvalanche"]["xmin"][...]
-        with g5.ExtendableSlice(group, "idx", dtype=np.uint64, shape=[n]) as dset:
+        with g5.ExtendableSlice(group, "idx", dtype=np.uint64, **kwargs) as dset:
             dset[0, :] = src["ExtremalAvalanche"]["idx"][...]
-        with g5.ExtendableList(group, "t0", dtype=np.float64) as dset:
+        with g5.ExtendableList(group, "t0", dtype=np.float64, chunks=(16,)) as dset:
             dset[0] = t
-        with g5.ExtendableList(group, "S", dtype=np.uint64) as dset:
+        with g5.ExtendableList(group, "S", dtype=np.uint64, chunks=(16,)) as dset:
             dset[0] = n
-        with g5.ExtendableList(group, "index_snapshot", dtype=np.int64) as dset:
+        with g5.ExtendableList(group, "index_snapshot", dtype=np.int64, chunks=(16,)) as dset:
             dset[0] = index_snapshot
 
     return temp_file
