@@ -51,6 +51,10 @@ def _upgrade_data(
 
     assert tag.equal(ver, "2.0")
 
+    with h5py.File(filename) as src:
+        if myname not in src:
+            return None
+
     temp_file = temp_dir / "new_file.h5"
     with h5py.File(filename) as src, h5py.File(temp_file, "w") as dst:
         g5.copy(src, dst, ["/meta", "/param"])
@@ -142,7 +146,9 @@ def _upgrade_data(
             dst[myname].create_group("lock")
             logging.warning(f"Restart not possible: {filename}")
 
-        Preparation.check_copy(src, dst, rename=rename, allow={"->": ["/restart"]})
+        Preparation.check_copy(
+            src, dst, rename=rename, allow={"->": ["/restart", f"/{myname}/mean_epsp"]}
+        )
 
     return temp_file
 
