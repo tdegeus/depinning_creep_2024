@@ -254,6 +254,10 @@ def _upgrade_metadata(filename: pathlib.Path, temp_dir: pathlib.Path) -> pathlib
     :param temp_dir: Temporary directory in which any file may be created/overwritten.
     :return: New file in temporary directory if the data is upgraded, ``None`` otherwise.
     """
+    with h5py.File(filename) as src:
+        if "meta" not in src:
+            return filename
+
     temp_file = temp_dir / "new_meta.h5"
     with h5py.File(filename) as src, h5py.File(temp_file, "w") as dst:
         groups = [i for i in src]
@@ -275,9 +279,31 @@ def _upgrade_metadata(filename: pathlib.Path, temp_dir: pathlib.Path) -> pathlib
         ]
 
         in_src = [i.split("/meta/")[1] for i in g5.getdatapaths(src, root="/meta")]
+        dst.create_group("meta")
+        deps = []
+        comp = []
+        link = None
 
         for key in known:
             if key in in_src:
+                d = src[f"/meta/{key}"]
+                if isinstance(d, h5py.Group):
+                    if sorted([i for i in d.attrs]) == ["compiler", "dependencies", "uuid"]:
+                        a = list(d.attrs["compiler"]) == comp
+                        b = list(d.attrs["dependencies"]) == deps
+                        if a and b:
+                            dst[tools.path_meta(*key.split("/"))] = dst[f"/meta/{link}"]
+                            continue
+                        else:
+                            name = tools.path_meta(*key.split("/")).split("/")[2]
+                            deps = list(d.attrs["dependencies"])
+                            comp = list(d.attrs["compiler"])
+                            link = name
+                            g = dst["meta"].create_group(name)
+                            g.attrs["compiler"] = comp
+                            g.attrs["dependencies"] = deps
+                            continue
+
                 g5.copy(src, dst, f"/meta/{key}", tools.path_meta(*key.split("/")))
 
         for key in in_src:
