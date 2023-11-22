@@ -506,11 +506,10 @@ def _index_avalanches(group: h5py.Group) -> list[int]:
     :param group: Root of results.
     :return: slice
     """
-    if "lock" in group:
-        if "idx_ignore" in group:
-            return np.setdiff1d(
-                np.arange(group["avalanches"]["idx"].shape[0]), group["idx_ignore"][...]
-            )
+    if "idx_ignore" in group["avalanches"]:
+        return np.setdiff1d(
+            np.arange(group["avalanches"]["idx"].shape[0]), group["avalanches"]["idx_ignore"][...]
+        )
     return np.arange(group["avalanches"]["idx"].shape[0])
 
 
