@@ -783,7 +783,10 @@ class MeasureAvalanches:
             enstat.binned(bin_edges=ell_bin_edges, names=["ell", "S"]) for _ in range(n)
         ]
 
-    def add_sample(self, index: int, S: np.array, ell: np.array, A: np.array):
+    def add_sample(self, index: int, S: np.array, ell: np.array, A: np.array = None):
+        if A is None:
+            return self.add_sample_1d(index, S, ell)
+
         assert np.issubdtype(S.dtype, np.integer)
         assert np.issubdtype(A.dtype, np.integer)
         assert not np.issubdtype(ell.dtype, np.integer)
@@ -867,15 +870,67 @@ class MeasureAvalanches:
                     path = g5.join(root, name, key, field, root=True)
                     storage.dump_overwrite(file, path, [i0[field] for i0 in vdict])
 
+class MeasureClusters:
+    def __init__(self, shape):
+        self.shape = shape
+        self.N = np.prod(shape)
+        self.S = np.zeros(shape, dtype=int)
+        self.segmenter = eye.ClusterLabeller(shape=shape, periodic=True)
 
-def EnsembleAvalanches_clusters(cli_args: list = None, myname=m_name):
-    """
-    Calculate properties of avalanches.
-    -   Measure at different times compared to an arbitrary reference time.
-    -   Avalanches are segmented by spatial clustering.
-    -   The interface is arbitrarily assumed flat at the reference time.
-    """
+    def reset(self):
+        self.S *= 0
+        self.segmenter.reset()
 
+    def add_points(self, idx):
+        self.S += np.bincount(idx, minlength=self.N).reshape(self.shape)
+        self.segmenter.add_points(np.copy(idx))
+
+        labels = self.segmenter.labels.astype(int).ravel()
+        a = np.bincount(labels)
+        s = np.bincount(labels, weights=self.S.ravel()).astype(int)
+        ell = Preparation.convert_A_to_ell(a, len(self.shape))
+
+        keep = a > 0  # merged labels are empty
+        keep[0] = False  # background label=0
+
+        return s[keep], ell[keep], a[keep]
+
+class MeasureChord:
+    def __init__(self, shape):
+        self.shape = shape
+        self.N = np.prod(shape)
+        self.S = np.zeros(shape, dtype=int)
+        self.nchord = max(int(0.1 * np.min(shape)), 1)
+
+    def reset(self):
+        self.S *= 0
+
+    def add_points(self, idx):
+        self.S += np.bincount(idx, minlength=self.N).reshape(self.shape)
+
+        rows = np.random.choice(np.arange(self.shape[0]), size=self.nchord, replace=False)
+        start_label = 0
+        labels = []
+        sizes = []
+        for row in rows:
+            srow = self.S[row, ...].copy()
+            lrow = eye.clusters(srow, periodic=True)
+            lrow = np.where(lrow > 1, lrow + start_label, 0)
+            start_label = np.max(lrow)
+            labels += list(lrow.astype(int))
+            sizes += list(srow.astype(int))
+
+        labels = np.array(labels, dtype=int)
+        sizes = np.array(sizes, dtype=int)
+
+        ell = np.bincount(labels)
+        s = np.bincount(labels, weights=sizes).astype(int)
+        keep = s > 0  # merged labels are empty
+        keep[0] = False  # background label=0
+
+        return s[keep], ell[keep]
+
+def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, doc) -> None:
     class MyFmt(
         argparse.RawDescriptionHelpFormatter,
         argparse.ArgumentDefaultsHelpFormatter,
@@ -883,8 +938,6 @@ def EnsembleAvalanches_clusters(cli_args: list = None, myname=m_name):
     ):
         pass
 
-    funcname = inspect.getframeinfo(inspect.currentframe()).function
-    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
 
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
@@ -895,7 +948,7 @@ def EnsembleAvalanches_clusters(cli_args: list = None, myname=m_name):
         "--output",
         type=pathlib.Path,
         help="Output file",
-        default="EnsembleAvalanches_clusters.h5",
+        default=f"EnsembleAvalanches_{mymode}.h5",
     )
     parser.add_argument(
         "--tau", type=float, nargs=3, default=[-5, 0, 51], help="logspace tau (units of tau_alpha)"
@@ -950,8 +1003,11 @@ def EnsembleAvalanches_clusters(cli_args: list = None, myname=m_name):
         with h5py.File(files[0]) as file:
             g5.copy(file, output, ["/param"])
 
-        segmenter = eye.ClusterLabeller(shape=shape, periodic=True)
-        S = np.zeros(shape, dtype=int)
+        if mymode == "chord":
+            mysegmenter = MeasureChord(shape)
+            output["/settings/nchord"] = mysegmenter.nchord
+        else:
+            mysegmenter = MeasureClusters(shape)
 
         # measure
         for ifile, f in enumerate(tqdm.tqdm(files)):
@@ -965,38 +1021,16 @@ def EnsembleAvalanches_clusters(cli_args: list = None, myname=m_name):
                         if t[-1] <= t_measure[-1]:
                             break
 
-                        # reset measurement
-                        S *= 0
-                        segmenter.reset()
-
+                        mysegmenter.reset()
                         for i0, t0 in enumerate(t_measure):
-                            # increment spatial map
                             i = np.argmax(t > t0)
                             if i == 0:
                                 continue
-                            points = np.copy(idx[:i])
-                            segmenter.add_points(points)
-                            S += np.bincount(points, minlength=np.prod(shape)).reshape(shape)
-                            structure[i0] += S
+                            measurement.add_sample(i0, *mysegmenter.add_points(idx[:i]))
+                            structure[i0] += mysegmenter.S
                             mean_t[i0] += t[:i]
-
-                            # for next time window
                             idx = idx[i:]
                             t = t[i:]
-
-                            # deduce avalanche properties
-                            lab = segmenter.labels.astype(int).ravel()
-                            a = np.bincount(lab)
-                            s = np.bincount(lab, weights=S.ravel()).astype(int)
-                            ell = Preparation.convert_A_to_ell(a, len(shape))
-                            keep = a > 0  # merged labels are empty
-                            keep[0] = False  # background label=0
-                            a = a[keep]
-                            s = s[keep]
-                            ell = ell[keep]
-
-                            # update statistics
-                            measurement.add_sample(i0, s, ell, a)
 
                         # jump the next measurement
                         if t[-1] <= 2 * tau_alpha:
@@ -1027,149 +1061,24 @@ def EnsembleAvalanches_clusters(cli_args: list = None, myname=m_name):
             output.flush()
 
 
+def EnsembleAvalanches_clusters(cli_args: list = None, myname=m_name):
+    """
+    Calculate properties of avalanches.
+    -   Measure at different times compared to an arbitrary reference time.
+    -   Avalanches are segmented by spatial clustering.
+    -   The interface is arbitrarily assumed flat at the reference time.
+    """
+    funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    return EnsembleAvalanches_base(cli_args, myname, "cluster", funcname, doc)
+
+
 def EnsembleAvalanches_chord(cli_args: list = None, myname=m_name):
     """
     Calculate properties of avalanches.
     -   Measure at different times compared to an arbitrary reference time.
     -   Avalanches are measured along ranmdomly chosen lines.
     """
-
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
-
     funcname = inspect.getframeinfo(inspect.currentframe()).function
     doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
-    parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
-
-    parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
-    parser.add_argument("-v", "--version", action="version", version=version)
-    parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
-    parser.add_argument(
-        "-o",
-        "--output",
-        type=pathlib.Path,
-        help="Output file",
-        default="EnsembleAvalanches_chord.h5",
-    )
-    parser.add_argument(
-        "--tau", type=float, nargs=3, default=[-5, 0, 51], help="logspace tau (units of tau_alpha)"
-    )
-    parser.add_argument("--bins", type=int, help="Number of bins P(S), P(A), P(ell)", default=60)
-    parser.add_argument(
-        "--means", type=int, default=4, help="Compute <S, A, ell>**(i + 1) for i in range(means)"
-    )
-    parser.add_argument("info", type=pathlib.Path, help="EnsembleInfo: read tau_alpha")
-
-    args = tools._parse(parser, cli_args)
-    assert args.info.exists()
-    tools._check_overwrite_file(args.output, args.force)
-
-    with h5py.File(args.info) as file:
-        root = args.info.parent
-        files = [root / f for f in file["files"].asstr()[...]]
-        shape = file["param"]["shape"][...]
-        assert len(shape) == 2, "Implemented for 2D only"
-        nchord = max(int(0.1 * np.min(shape)), 1)
-        tau_alpha = file["tau_alpha"][...]
-        t_measure = np.logspace(args.tau[0], args.tau[1], int(args.tau[2])) * tau_alpha
-
-    files = [f for f in files if f.exists()]
-    assert len(files) > 0
-
-    # allocate statistics
-    for f in files:
-        with h5py.File(f) as file:
-            avalanches = file[myname]["avalanches"]
-            indices = _index_avalanches(file[myname])
-            if len(indices) == 0:
-                continue
-            idx = avalanches["idx"][indices[0], ...]
-
-        L = np.max(shape)
-        opts = dict(bins=args.bins, mode="log", integer=True)
-        measurement = MeasureAvalanches(
-            n=len(t_measure),
-            S_bin_edges=enstat.histogram.from_data(np.array([1, idx.size]), **opts).bin_edges,
-            A_bin_edges=enstat.histogram.from_data(np.array([1, np.prod(shape)]), **opts).bin_edges,
-            ell_bin_edges=enstat.histogram.from_data(np.array([1, L]), **opts).bin_edges,
-            n_moments=args.means,
-        )
-        structure = [eye.Structure(shape=shape) for _ in t_measure]
-        mean_t = [enstat.scalar() for _ in t_measure]
-        break
-
-    # collect statistics
-    with h5py.File(args.output, "w") as output:
-        tools.create_check_meta(output, tools.path_meta(myname, funcname), dev=args.develop)
-        output["/settings/tau"] = t_measure
-        output["/settings/tau_alpha"] = tau_alpha
-        output["/settings/nchord"] = nchord
-        with h5py.File(files[0]) as file:
-            g5.copy(file, output, ["/param"])
-
-        # measure
-        for ifile, f in enumerate(tqdm.tqdm(files)):
-            with h5py.File(f) as file:
-                if myname not in file:
-                    continue
-                avalanches = file[myname]["avalanches"]
-                for iava in _index_avalanches(file[myname]):
-                    t = avalanches["t"][iava, ...] - avalanches["t0"][iava]
-                    idx = avalanches["idx"][iava, ...].astype(int)
-
-                    while True:
-                        if t[-1] <= t_measure[-1]:
-                            break
-
-                        # reset measurement
-                        S = np.zeros(shape, dtype=int)
-
-                        for i0, t0 in enumerate(t_measure):
-                            # increment spatial map
-                            i = np.argmax(t > t0)
-                            if i == 0:
-                                continue
-                            S += np.bincount(idx[:i], minlength=np.prod(shape)).reshape(shape)
-                            mean_t[i0] += t[:i]
-
-                            # for next time window
-                            idx = idx[i:]
-                            t = t[i:]
-
-                            # deduce avalanche properties
-                            rows = np.random.choice(np.arange(shape[0]), size=nchord, replace=False)
-                            slab = 0
-                            lab = []
-                            si = []
-                            for row in rows:
-                                srow = S[row, ...].copy()
-                                lrow = eye.clusters(srow, periodic=True)
-                                lrow = np.where(lrow > 1, lrow + slab, lrow)
-                                slab = np.max(lrow)
-                                lab += list(lrow.astype(int))
-                                si += list(srow.astype(int))
-
-                            lab = np.array(lab, dtype=int)
-                            ell = np.bincount(lab)
-                            s = np.bincount(lab, weights=si).astype(int)
-                            keep = s > 0  # merged labels are empty
-                            keep[0] = False  # background label=0
-                            s = s[keep]
-                            ell = ell[keep]
-
-                            # update statistics
-                            measurement.add_sample_1d(i0, s, ell)
-
-                        # jump the next measurement
-                        if t[-1] <= 2 * tau_alpha:
-                            break
-                        i = np.argmax(t > 2 * tau_alpha)
-                        t = t[i:] - t[i]
-                        idx = idx[i:]
-
-            measurement.store(file=output, root="/data")
-            output.flush()
+    return EnsembleAvalanches_base(cli_args, myname, "chord", funcname, doc)

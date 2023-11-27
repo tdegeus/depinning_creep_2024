@@ -156,11 +156,6 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
             xmin = min(xmin, np.min(x))
             xmax = max(xmax, np.max(x))
 
-    opts = dict(bins=args.bins, mode="log", integer=True)
-    x_bin_edges = enstat.histogram.from_data(np.array([xmin, xmax]), bins=500).bin_edges
-    S_bin_edges = enstat.histogram.from_data(np.array([1, smax]), **opts).bin_edges
-    A_bin_edges = enstat.histogram.from_data(np.array([1, N]), **opts).bin_edges
-    ell_bin_edges = enstat.histogram.from_data(np.array([1, L]), **opts).bin_edges
     if args.xc is None:
         n = args.ndx // 2
         x0_list = np.linspace(xmin, xmax, n)[:-2]
@@ -169,15 +164,15 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
         x0_list = args.xc - np.logspace(-4, np.log10(args.xc), args.ndx)
         x0_list = np.sort(np.concatenate(([args.xc], x0_list)))
 
-    x_hist = enstat.histogram(bin_edges=x_bin_edges)
-    S_hist = [enstat.histogram(bin_edges=S_bin_edges) for _ in x0_list]
-    A_hist = [enstat.histogram(bin_edges=A_bin_edges) for _ in x0_list]
-    ell_hist = [enstat.histogram(bin_edges=ell_bin_edges) for _ in x0_list]
-    S_mean = [[enstat.scalar(dtype=int) for _ in range(args.means)] for _ in x0_list]
-    A_mean = [[enstat.scalar(dtype=int) for _ in range(args.means)] for _ in x0_list]
-    ell_mean = [[enstat.scalar(dtype=int) for _ in range(args.means)] for _ in x0_list]
-    fractal_A = [enstat.binned(bin_edges=A_bin_edges, names=["A", "S"]) for _ in x0_list]
-    fractal_ell = [enstat.binned(bin_edges=ell_bin_edges, names=["ell", "S"]) for _ in x0_list]
+    opts = dict(bins=args.bins, mode="log", integer=True)
+    measurement = Thermal.MeasureAvalanches(
+        n=len(x0_list),
+        S_bin_edges=enstat.histogram.from_data(np.array([1, smax]), **opts).bin_edges,
+        A_bin_edges=enstat.histogram.from_data(np.array([1, N]), **opts).bin_edges,
+        ell_bin_edges=enstat.histogram.from_data(np.array([1, L]), **opts).bin_edges,
+        n_moments=args.means,
+    )
+    x_hist = enstat.histogram(bin_edges=enstat.histogram.from_data(np.array([xmin, xmax]), bins=500).bin_edges)
 
     # collect statistics
     with h5py.File(args.output, "w") as output:
@@ -200,45 +195,12 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
                     for i0, x0 in enumerate(tqdm.tqdm(x0_list)):
                         S, A, _ = epm.segment_avalanche(x0 >= xmin, idx, first=False, last=False)
                         ell = np.sqrt(A)
-                        A_hist[i0] += A
-                        S_hist[i0] += S
-                        ell_hist[i0] += ell
-                        fractal_A[i0].add_sample(A, S)
-                        fractal_ell[i0].add_sample(ell, S)
-                        S = S.astype(int).astype("object")  # to avoid overflow (ell=float)
-                        A = A.astype(int).astype("object")
-                        for p in range(args.means):
-                            S_mean[i0][p] += S ** (p + 1)
-                            A_mean[i0][p] += A ** (p + 1)
-                            ell_mean[i0][p] += ell ** (p + 1)
+                        measurement.add_sample(i0, S, ell, A)
 
             for name, value in zip(["x_hist"], [x_hist]):
                 value = dict(value)
                 for key in ["bin_edges", "count"]:
                     storage.dump_overwrite(output, f"/data/{name}/{key}", value[key])
 
-            for name, value in zip(["S_hist", "A_hist", "ell_hist"], [S_hist, A_hist, ell_hist]):
-                value = [dict(i0) for i0 in value]
-                for key in ["bin_edges", "count"]:
-                    storage.dump_overwrite(output, f"/data/{name}/{key}", [i0[key] for i0 in value])
-
-            for name, value in zip(["S_mean", "A_mean", "ell_mean"], [S_mean, A_mean, ell_mean]):
-                value = [[dict(p) for p in i0] for i0 in value]
-                for key in ["first", "second", "norm"]:
-                    storage.dump_overwrite(
-                        output, f"/data/{name}/{key}", [[float(p[key]) for p in i0] for i0 in value]
-                    )
-
-            for name, value in zip(["fractal_A", "fractal_ell"], [fractal_A, fractal_ell]):
-                for key in ["S", name.split("_")[1]]:
-                    storage.dump_overwrite(
-                        output, f"/data/{name}/{key}/first", [i0[key].first for i0 in value]
-                    )
-                    storage.dump_overwrite(
-                        output, f"/data/{name}/{key}/second", [i0[key].second for i0 in value]
-                    )
-                    storage.dump_overwrite(
-                        output, f"/data/{name}/{key}/norm", [i0[key].norm for i0 in value]
-                    )
-
+            measurement.store(file=output, root="/data")
             output.flush()
