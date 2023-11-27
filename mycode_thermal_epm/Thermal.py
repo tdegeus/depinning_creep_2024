@@ -934,6 +934,10 @@ class MeasureChord:
 
 
 def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, doc) -> None:
+    """
+    Calculate properties of avalanches.
+    """
+
     class MyFmt(
         argparse.RawDescriptionHelpFormatter,
         argparse.ArgumentDefaultsHelpFormatter,
