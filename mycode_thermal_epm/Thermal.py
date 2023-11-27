@@ -24,7 +24,6 @@ from .Preparation import data_version
 
 f_info = "EnsembleInfo.h5"
 f_structure = "EnsembleStructure.h5"
-f_avalanches = "EnsembleAvalanches.h5"
 m_name = "Thermal"
 m_exclude = ["AQS", "Extremal", "Preparation", "Thermal"]
 
@@ -345,7 +344,7 @@ def Run(cli_args: list = None, myname: str = m_name) -> None:
     Run simulation at fixed stress.
 
     0.  Run ``file["/Thermal/snapshots"].attrs["preparation"]`` events and take snapshot.
-    1.  Run ``file["/Thermal/avalanches/idx"].shape[1]`` events, and record:
+    1.  Run ``file["/Thermal/avalanches/idx"].shape[1]`` events, and rechord:
         a.  Sequence of failing blocks:
             -   time ``t``
             -   flat index of failing block ``idx``
@@ -606,19 +605,16 @@ def EnsembleInfo(cli_args: list = None, myname: str = m_name) -> None:
                     sigmay=file[myname]["snapshots"]["sigmay"][indices, ...],
                 ).ravel()
 
-                if myname != m_name:
-                    continue
-
                 # collect from avalanches
-                indices = _index_avalanches(file[myname])
-                avalanches = file[myname]["avalanches"]
-                for i in indices:
-                    ti = avalanches["t"][i, ...] - avalanches["t0"][i]
-                    ai = epm.cumsum_n_unique(avalanches["idx"][i, ...]) / N
-                    si = np.arange(1, ti.size + 1) / N
-                    if np.all(ti == 0):  # happens for very small temperatures
-                        continue
-                    binned.add_sample(ti, si, si**2, ai, ai**2, np.sqrt(ai))
+                if myname == m_name:
+                    indices = _index_avalanches(file[myname])
+                    avalanches = file[myname]["avalanches"]
+                    for i in indices:
+                        ti = avalanches["t"][i, ...] - avalanches["t0"][i]
+                        ai = epm.cumsum_n_unique(avalanches["idx"][i, ...]) / N
+                        si = np.arange(1, ti.size + 1) / N
+                        if not np.all(ti == 0):  # happens for very small temperatures
+                            binned.add_sample(ti, si, si**2, ai, ai**2, np.sqrt(ai))
 
             # update output file
             Preparation.store_histogram(output["hist_x"], pdfx)
@@ -630,24 +626,22 @@ def EnsembleInfo(cli_args: list = None, myname: str = m_name) -> None:
 
             output.flush()
 
-        if myname != m_name:
-            return
-
         # compute relaxation time
-        t = enstat.static.restore(
-            first=output["/restore/t/first"][...],
-            norm=output["/restore/t/norm"][...],
-        )
-        A = enstat.static.restore(
-            first=output["/restore/A/first"][...],
-            norm=output["/restore/A/norm"][...],
-        )
-        t.squash(4)  # todo: find something more intelligent
-        A.squash(4)  # todo: find something more intelligent
-        phi = 1 - A.mean()
-        tau = t.mean()
-        tau_alpha = tau[np.argmax(phi < 0.5)]
-        output["tau_alpha"] = tau_alpha
+        if myname == m_name:
+            t = enstat.static.restore(
+                first=output["/restore/t/first"][...],
+                norm=output["/restore/t/norm"][...],
+            )
+            A = enstat.static.restore(
+                first=output["/restore/A/first"][...],
+                norm=output["/restore/A/norm"][...],
+            )
+            t.squash(4)  # todo: find something more intelligent
+            A.squash(4)  # todo: find something more intelligent
+            phi = 1 - A.mean()
+            tau = t.mean()
+            tau_alpha = tau[np.argmax(phi < 0.5)]
+            output["tau_alpha"] = tau_alpha
 
 
 def EnsembleStructure(cli_args: list = None, myname: str = m_name):
@@ -762,10 +756,186 @@ def Plot(cli_args: list = None, myname: str = m_name) -> None:
         plt.close(fig)
 
 
-def EnsembleAvalanches(cli_args: list = None, myname=m_name):
+class MeasureAvalanches:
+    def __init__(
+        self,
+        n: int,
+        S_bin_edges: np.array,
+        A_bin_edges: np.array,
+        ell_bin_edges: np.array,
+        n_moments: int,
+    ):
+        self.line = False
+        self.measured = False
+
+        self.n_moments = n_moments
+
+        self.S_hist = [enstat.histogram(bin_edges=S_bin_edges) for _ in range(n)]
+        self.A_hist = [enstat.histogram(bin_edges=A_bin_edges) for _ in range(n)]
+        self.ell_hist = [enstat.histogram(bin_edges=ell_bin_edges) for _ in range(n)]
+
+        self.S_mean = [[enstat.scalar(dtype=int) for _ in range(n_moments)] for _ in range(n)]
+        self.A_mean = [[enstat.scalar(dtype=int) for _ in range(n_moments)] for _ in range(n)]
+        self.ell_mean = [[enstat.scalar(dtype=int) for _ in range(n_moments)] for _ in range(n)]
+
+        self.A_fractal = [enstat.binned(bin_edges=A_bin_edges, names=["A", "S"]) for _ in range(n)]
+        self.ell_fractal = [
+            enstat.binned(bin_edges=ell_bin_edges, names=["ell", "S"]) for _ in range(n)
+        ]
+
+    def add_sample(self, index: int, S: np.array, ell: np.array, A: np.array = None):
+        if A is None:
+            return self.add_sample_1d(index, S, ell)
+
+        assert np.issubdtype(S.dtype, np.integer)
+        assert np.issubdtype(A.dtype, np.integer)
+        assert not np.issubdtype(ell.dtype, np.integer)
+
+        self.measured = True
+
+        self.S_hist[index] += S
+        self.A_hist[index] += A
+        self.ell_hist[index] += ell
+
+        self.A_fractal[index].add_sample(A, S)
+        self.ell_fractal[index].add_sample(ell, S)
+
+        # to avoid overflow: assume that "ell" is float
+        S = S.astype(int).astype("object")
+        A = A.astype(int).astype("object")
+
+        for p in range(self.n_moments):
+            self.S_mean[index][p] += S ** (p + 1)
+            self.A_mean[index][p] += A ** (p + 1)
+            self.ell_mean[index][p] += ell ** (p + 1)
+
+    def add_sample_1d(self, index: int, S: np.array, ell: np.array):
+        assert np.issubdtype(S.dtype, np.integer)
+        assert np.issubdtype(ell.dtype, np.integer)
+
+        self.measured = True
+        self.line = True
+
+        self.S_hist[index] += S
+        self.ell_hist[index] += ell
+
+        self.ell_fractal[index].add_sample(ell, S)
+
+        # to avoid overflow
+        S = S.astype(int).astype("object")
+        ell = ell.astype(int).astype("object")
+
+        for p in range(self.n_moments):
+            self.S_mean[index][p] += S ** (p + 1)
+            self.ell_mean[index][p] += ell ** (p + 1)
+
+    def store(self, file: h5py.File, root: str = ""):
+        names = ["S_hist", "ell_hist", "A_hist"]
+        values = [self.S_hist, self.ell_hist, self.A_hist]
+
+        if self.line:
+            names = names[:-1]
+            values = values[:-1]
+
+        for name, value in zip(names, values):
+            vdict = [dict(i0) for i0 in value]
+            for field in ["bin_edges", "count"]:
+                path = g5.join(root, name, field, root=True)
+                storage.dump_overwrite(file, path, [i0[field] for i0 in vdict])
+
+        names = ["S_mean", "ell_mean", "A_mean"]
+        values = [self.S_mean, self.ell_mean, self.A_mean]
+
+        if self.line:
+            names = names[:-1]
+            values = values[:-1]
+
+        for name, value in zip(names, values):
+            vdict = [[dict(p) for p in i0] for i0 in value]
+            for field in ["first", "second", "norm"]:
+                path = g5.join(root, name, field, root=True)
+                storage.dump_overwrite(file, path, [[float(p[field]) for p in i0] for i0 in vdict])
+
+        names = ["fractal_ell", "fractal_A"]
+        values = [self.ell_fractal, self.A_fractal]
+
+        if self.line:
+            names = names[:-1]
+            values = values[:-1]
+
+        for name, value in zip(names, values):
+            for key in ["S", name.split("_")[1]]:
+                vdict = [dict(i0[key]) for i0 in value]
+                for field in ["first", "second", "norm"]:
+                    path = g5.join(root, name, key, field, root=True)
+                    storage.dump_overwrite(file, path, [i0[field] for i0 in vdict])
+
+
+class MeasureClusters:
+    def __init__(self, shape):
+        self.shape = shape
+        self.N = np.prod(shape)
+        self.S = np.zeros(shape, dtype=int)
+        self.segmenter = eye.ClusterLabeller(shape=shape, periodic=True)
+
+    def reset(self):
+        self.S *= 0
+        self.segmenter.reset()
+
+    def add_points(self, idx):
+        self.S += np.bincount(idx, minlength=self.N).reshape(self.shape)
+        self.segmenter.add_points(np.copy(idx))
+
+        labels = self.segmenter.labels.astype(int).ravel()
+        a = np.bincount(labels)
+        s = np.bincount(labels, weights=self.S.ravel()).astype(int)
+        ell = Preparation.convert_A_to_ell(a, len(self.shape))
+
+        keep = a > 0  # merged labels are empty
+        keep[0] = False  # background label=0
+
+        return s[keep], ell[keep], a[keep]
+
+
+class MeasureChord:
+    def __init__(self, shape):
+        self.shape = shape
+        self.N = np.prod(shape)
+        self.S = np.zeros(shape, dtype=int)
+        self.nchord = max(int(0.1 * np.min(shape)), 1)
+
+    def reset(self):
+        self.S *= 0
+
+    def add_points(self, idx):
+        self.S += np.bincount(idx, minlength=self.N).reshape(self.shape)
+
+        rows = np.random.choice(np.arange(self.shape[0]), size=self.nchord, replace=False)
+        start_label = 0
+        labels = []
+        sizes = []
+        for row in rows:
+            srow = self.S[row, ...].copy()
+            lrow = eye.clusters(srow, periodic=True)
+            lrow = np.where(lrow > 1, lrow + start_label, 0)
+            start_label = np.max(lrow)
+            labels += list(lrow.astype(int))
+            sizes += list(srow.astype(int))
+
+        labels = np.array(labels, dtype=int)
+        sizes = np.array(sizes, dtype=int)
+
+        ell = np.bincount(labels)
+        s = np.bincount(labels, weights=sizes).astype(int)
+        keep = s > 0  # merged labels are empty
+        keep[0] = False  # background label=0
+
+        return s[keep], ell[keep]
+
+
+def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, doc) -> None:
     """
-    Calculate properties of avalanches at different times compared to an arbitrary reference time.
-    The interface is arbitrarily assumed flat.
+    Calculate properties of avalanches.
     """
 
     class MyFmt(
@@ -775,20 +945,22 @@ def EnsembleAvalanches(cli_args: list = None, myname=m_name):
     ):
         pass
 
-    funcname = inspect.getframeinfo(inspect.currentframe()).function
-    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
 
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("-v", "--version", action="version", version=version)
     parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
     parser.add_argument(
-        "-o", "--output", type=pathlib.Path, help="Output file", default=f_avalanches
+        "-o",
+        "--output",
+        type=pathlib.Path,
+        help="Output file",
+        default=f"EnsembleAvalanches_{mymode}.h5",
     )
     parser.add_argument(
         "--tau", type=float, nargs=3, default=[-5, 0, 51], help="logspace tau (units of tau_alpha)"
     )
-    parser.add_argument("--bins", type=int, help="Number of bins for P(S, A, ell)", default=60)
+    parser.add_argument("--bins", type=int, help="Number of bins P(S), P(A), P(ell)", default=60)
     parser.add_argument(
         "--means", type=int, default=4, help="Compute <S, A, ell>**(i + 1) for i in range(means)"
     )
@@ -808,45 +980,29 @@ def EnsembleAvalanches(cli_args: list = None, myname=m_name):
     files = [f for f in files if f.exists()]
     assert len(files) > 0
 
-    # allocate
-    init = False
+    # allocate statistics
     for f in files:
         with h5py.File(f) as file:
-            if myname not in file:
-                assert not any(n in file for n in [i for i in m_exclude if i != myname])
-                continue
-
             avalanches = file[myname]["avalanches"]
-            for iava in _index_avalanches(file[myname]):
-                t = avalanches["t"][iava, ...] - avalanches["t0"][iava]
-                idx = avalanches["idx"][iava, ...]
+            indices = _index_avalanches(file[myname])
+            if len(indices) == 0:
+                continue
+            idx = avalanches["idx"][indices[0], ...]
 
-                structure = [eye.Structure(shape=shape) for _ in t_measure]
-                mean_t = [enstat.scalar() for _ in t_measure]
+        L = np.max(shape)
+        opts = dict(bins=args.bins, mode="log", integer=True)
+        measurement = MeasureAvalanches(
+            n=len(t_measure),
+            S_bin_edges=enstat.histogram.from_data(np.array([1, idx.size]), **opts).bin_edges,
+            A_bin_edges=enstat.histogram.from_data(np.array([1, np.prod(shape)]), **opts).bin_edges,
+            ell_bin_edges=enstat.histogram.from_data(np.array([1, L]), **opts).bin_edges,
+            n_moments=args.means,
+        )
+        structure = [eye.Structure(shape=shape) for _ in t_measure]
+        mean_t = [enstat.scalar() for _ in t_measure]
+        break
 
-                opts = dict(bins=args.bins, mode="log", integer=True)
-                edges = enstat.histogram.from_data(np.array([1, idx.size]), **opts).bin_edges
-                hist_S = [enstat.histogram(bin_edges=edges) for _ in t_measure]
-
-                edges = enstat.histogram.from_data(np.array([1, np.prod(shape)]), **opts).bin_edges
-                hist_A = [enstat.histogram(bin_edges=edges) for _ in t_measure]
-
-                edges = enstat.histogram.from_data(np.array([1, np.max(shape)]), **opts).bin_edges
-                hist_ell = [enstat.histogram(bin_edges=edges) for _ in t_measure]
-
-                n = args.means
-                mean_S = [[enstat.scalar(dtype=int) for _ in range(n)] for _ in t_measure]
-                mean_A = [[enstat.scalar(dtype=int) for _ in range(n)] for _ in t_measure]
-                mean_ell = [[enstat.scalar(dtype=int) for _ in range(n)] for _ in t_measure]
-
-                init = True
-                break
-
-            if init:
-                break
-
-    assert init, "Did not find any data"
-
+    # collect statistics
     with h5py.File(args.output, "w") as output:
         tools.create_check_meta(output, tools.path_meta(myname, funcname), dev=args.develop)
         output["/settings/tau"] = t_measure
@@ -854,45 +1010,36 @@ def EnsembleAvalanches(cli_args: list = None, myname=m_name):
         with h5py.File(files[0]) as file:
             g5.copy(file, output, ["/param"])
 
+        if mymode == "chord":
+            mysegmenter = MeasureChord(shape)
+            output["/settings/nchord"] = mysegmenter.nchord
+        else:
+            mysegmenter = MeasureClusters(shape)
+
+        # measure
         for ifile, f in enumerate(tqdm.tqdm(files)):
             with h5py.File(f) as file:
-                if myname not in file:
-                    continue
                 avalanches = file[myname]["avalanches"]
                 for iava in _index_avalanches(file[myname]):
                     t = avalanches["t"][iava, ...] - avalanches["t0"][iava]
                     idx = avalanches["idx"][iava, ...].astype(int)
 
                     while True:
-                        if t[-1] < t_measure[-1]:
+                        if t[-1] <= t_measure[-1]:
                             break
-                        segmenter = epm.allocate_AvalancheSegmenter(shape=shape, idx=idx, t=t)
 
+                        mysegmenter.reset()
                         for i0, t0 in enumerate(t_measure):
-                            segmenter.advance_to(t0, floor=True)
-                            s = segmenter.s.astype(int)
-                            structure[i0] += s
-                            mean_t[i0] += segmenter.t
+                            i = np.argmax(t > t0)
+                            if i == 0:
+                                continue
+                            measurement.add_sample(i0, *mysegmenter.add_points(idx[:i]))
+                            structure[i0] += mysegmenter.S
+                            mean_t[i0] += t[:i]
+                            idx = idx[i:]
+                            t = t[i:]
 
-                            lab = segmenter.labels.astype(int).ravel()
-                            a = np.bincount(lab)
-                            s = np.bincount(lab, weights=s.ravel()).astype(int)
-                            ell = Preparation.convert_A_to_ell(a, len(shape))
-                            keep = a > 0  # merged labels are empty
-                            keep[0] = False  # background label=0
-                            a = a[keep]
-                            s = s[keep]
-                            ell = ell[keep]
-                            hist_S[i0] += s
-                            hist_A[i0] += a
-                            hist_ell[i0] += ell
-                            s = s.astype(int).astype("object")  # to avoid overflow (ell=float)
-                            a = a.astype(int).astype("object")
-                            for p in range(args.means):
-                                mean_S[i0][p] += s ** (p + 1)
-                                mean_A[i0][p] += a ** (p + 1)
-                                mean_ell[i0][p] += ell ** (p + 1)
-
+                        # jump the next measurement
                         if t[-1] <= 2 * tau_alpha:
                             break
                         i = np.argmax(t > 2 * tau_alpha)
@@ -917,22 +1064,28 @@ def EnsembleAvalanches(cli_args: list = None, myname=m_name):
                         np.array([i0[key][:, 0] for i0 in value], dtype=np.float64),
                     )
 
-            for name, value in zip(["S_hist", "A_hist", "ell_hist"], [hist_S, hist_A, hist_ell]):
-                value = [dict(i0) for i0 in value]
-                for key in ["bin_edges", "count"]:
-                    storage.dump_overwrite(
-                        output,
-                        f"/data/{name}/{key}",
-                        np.array([i0[key] for i0 in value], dtype=np.float64),
-                    )
-
-            for name, value in zip(["S_mean", "A_mean", "ell_mean"], [mean_S, mean_A, mean_ell]):
-                value = [[dict(p) for p in i0] for i0 in value]
-                for key in ["first", "second", "norm"]:
-                    storage.dump_overwrite(
-                        output,
-                        f"/data/{name}/{key}",
-                        np.array([[float(p[key]) for p in i0] for i0 in value], dtype=np.float64),
-                    )
-
+            measurement.store(file=output, root="/data")
             output.flush()
+
+
+def EnsembleAvalanches_clusters(cli_args: list = None, myname=m_name):
+    """
+    Calculate properties of avalanches.
+    -   Measure at different times compared to an arbitrary reference time.
+    -   Avalanches are segmented by spatial clustering.
+    -   The interface is arbitrarily assumed flat at the reference time.
+    """
+    funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    return EnsembleAvalanches_base(cli_args, myname, "cluster", funcname, doc)
+
+
+def EnsembleAvalanches_chord(cli_args: list = None, myname=m_name):
+    """
+    Calculate properties of avalanches.
+    -   Measure at different times compared to an arbitrary reference time.
+    -   Avalanches are measured along ranmdomly chosen lines.
+    """
+    funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    return EnsembleAvalanches_base(cli_args, myname, "chord", funcname, doc)
