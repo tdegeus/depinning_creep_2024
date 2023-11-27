@@ -6,7 +6,7 @@ authors = [{name = "Tom de Geus", email = "tom@geus.me"}]
 classifiers = ["License :: OSI Approved :: MIT License"]
 dependencies = [
   "enstat >=0.9.6",
-  "GooseEYE >=0.7.1",
+  "GooseEYE >=0.8.0",
   "GooseEPM >=0.10.0",
   "GooseHDF5 >=0.26.1",
   "h5py",
@@ -25,7 +25,7 @@ AQS_EnsembleInfo = "mycode_thermal_epm.AQS:EnsembleInfo"
 AQS_Plot = "mycode_thermal_epm.AQS:Plot"
 AQS_Run = "mycode_thermal_epm.AQS:Run"
 AQS_UpgradeData = "mycode_thermal_epm.AQS:UpgradeData"
-Extremal_Avalanches = "mycode_thermal_epm.Extremal:EnsembleAvalanches"
+Extremal_Avalanches_x0 = "mycode_thermal_epm.Extremal:EnsembleAvalanches_x0"
 Extremal_BranchPreparation = "mycode_thermal_epm.Extremal:BranchPreparation"
 Extremal_EnsembleInfo = "mycode_thermal_epm.Extremal:EnsembleInfo"
 Extremal_EnsembleStructure = "mycode_thermal_epm.Extremal:EnsembleStructure"
@@ -37,7 +37,8 @@ Preparation_UpgradeData = "mycode_thermal_epm.Preparation:UpgradeData"
 Preparation_VerifyData = "mycode_thermal_epm.Preparation:VerifyData"
 Thermal_BranchPreparation = "mycode_thermal_epm.Thermal:BranchPreparation"
 Thermal_CheckData = "mycode_thermal_epm.Thermal:CheckData"
-Thermal_EnsembleAvalanches = "mycode_thermal_epm.Thermal:EnsembleAvalanches"
+Thermal_EnsembleAvalanches_clusters = "mycode_thermal_epm.Thermal:EnsembleAvalanches_clusters"
+Thermal_EnsembleAvalanches_chrod = "mycode_thermal_epm.Thermal:EnsembleAvalanches_chrod"
 Thermal_EnsembleInfo = "mycode_thermal_epm.Thermal:EnsembleInfo"
 Thermal_EnsembleStructure = "mycode_thermal_epm.Thermal:EnsembleStructure"
 Thermal_Plot = "mycode_thermal_epm.Thermal:Plot"

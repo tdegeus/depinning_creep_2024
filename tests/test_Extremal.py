@@ -49,7 +49,7 @@ class MyThermal(unittest.TestCase):
         Extremal.Run(["--dev", "-n", 200, "sim.h5"])
         Extremal.EnsembleInfo(["--dev", "-o", "info.h5", "sim.h5"])
         Extremal.EnsembleStructure(["--dev", "sim.h5"])
-        Extremal.EnsembleAvalanches(["--dev", "sim.h5"])
+        Extremal.EnsembleAvalanches_x0(["--dev", "sim.h5"])
 
 
 if __name__ == "__main__":

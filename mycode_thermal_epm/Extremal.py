@@ -17,7 +17,6 @@ from . import Thermal
 from . import tools
 from ._version import version
 
-f_info = "EnsembleInfo.h5"
 m_name = "Extremal"
 m_exclude = ["AQS", "ExtremalAvalanche", "Thermal"]
 
@@ -100,9 +99,10 @@ def Plot(cli_args: list = None) -> None:
     return Thermal.Plot(cli_args, m_name)
 
 
-def EnsembleAvalanches(cli_args: list = None, myname=m_name):
+def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
     """
-    Basic interpretation of the ensemble.
+    Calculate properties of avalanches.
+    -   Avalanches are segmented by using an arbitrary "x0".
     """
 
     class MyFmt(
@@ -119,10 +119,16 @@ def EnsembleAvalanches(cli_args: list = None, myname=m_name):
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("-v", "--version", action="version", version=version)
     parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
-    parser.add_argument("-o", "--output", type=pathlib.Path, help="Output file", default=f_info)
-    parser.add_argument("--nbins", type=int, help="Number of bins P(S), P(A), P(ell)", default=60)
-    parser.add_argument("--ndx", type=int, help="Number of x_c - x_0 to sample", default=100)
+    parser.add_argument(
+        "-o",
+        "--output",
+        type=pathlib.Path,
+        help="Output file",
+        default="EnsembleAvalanches_x0.h5",
+    )
     parser.add_argument("--xc", type=float, help="Value of x_c")
+    parser.add_argument("--ndx", type=int, help="Number of x_c - x_0 to sample", default=100)
+    parser.add_argument("--bins", type=int, help="Number of bins P(S), P(A), P(ell)", default=60)
     parser.add_argument(
         "--means", type=int, default=4, help="Compute <S, A, ell>**(i + 1) for i in range(means)"
     )
@@ -132,52 +138,57 @@ def EnsembleAvalanches(cli_args: list = None, myname=m_name):
     assert all([f.exists() for f in args.files])
     tools._check_overwrite_file(args.output, args.force)
 
+    # allocate statistics
+    for ifile, f in enumerate(tqdm.tqdm(args.files)):
+        with h5py.File(f) as file:
+            if ifile == 0:
+                L = np.max(file["param"]["shape"][...])
+                N = np.prod(file["param"]["shape"][...])
+                smax = 0
+                xmin = np.inf
+                xmax = -np.inf
+            if myname not in file:
+                assert not any(m in file for m in m_exclude), "Wrong file type"
+                continue
+            res = file[myname]["avalanches"]
+            x = res["xmin"][...]
+            smax = max(smax, x.size)
+            xmin = min(xmin, np.min(x))
+            xmax = max(xmax, np.max(x))
+
+    opts = dict(bins=args.bins, mode="log", integer=True)
+    x_bin_edges = enstat.histogram.from_data(np.array([xmin, xmax]), bins=500).bin_edges
+    S_bin_edges = enstat.histogram.from_data(np.array([1, smax]), **opts).bin_edges
+    A_bin_edges = enstat.histogram.from_data(np.array([1, N]), **opts).bin_edges
+    ell_bin_edges = enstat.histogram.from_data(np.array([1, L]), **opts).bin_edges
+    if args.xc is None:
+        n = args.ndx // 2
+        x0_list = np.linspace(xmin, xmax, n)[:-2]
+        x0_list = np.concatenate((x0_list, np.linspace(x0_list[-1], xmax, n + 3)[1:]))
+    else:
+        x0_list = args.xc - np.logspace(-4, np.log10(args.xc), args.ndx)
+        x0_list = np.sort(np.concatenate(([args.xc], x0_list)))
+
+    x_hist = enstat.histogram(bin_edges=x_bin_edges)
+    S_hist = [enstat.histogram(bin_edges=S_bin_edges) for _ in x0_list]
+    A_hist = [enstat.histogram(bin_edges=A_bin_edges) for _ in x0_list]
+    ell_hist = [enstat.histogram(bin_edges=ell_bin_edges) for _ in x0_list]
+    S_mean = [[enstat.scalar(dtype=int) for _ in range(args.means)] for _ in x0_list]
+    A_mean = [[enstat.scalar(dtype=int) for _ in range(args.means)] for _ in x0_list]
+    ell_mean = [[enstat.scalar(dtype=int) for _ in range(args.means)] for _ in x0_list]
+    fractal_A = [enstat.binned(bin_edges=A_bin_edges, names=["A", "S"]) for _ in x0_list]
+    fractal_ell = [enstat.binned(bin_edges=ell_bin_edges, names=["ell", "S"]) for _ in x0_list]
+
+    # collect statistics
     with h5py.File(args.output, "w") as output:
         tools.create_check_meta(output, tools.path_meta(myname, funcname), dev=args.develop)
+        with h5py.File(args.files[0]) as file:
+            g5.copy(file, output, ["/param"])
 
-        for ifile, f in enumerate(tqdm.tqdm(args.files)):
-            with h5py.File(f) as file:
-                if ifile == 0:
-                    g5.copy(file, output, ["/param"])
-                    L = np.max(file["param"]["shape"][...])
-                    N = np.prod(file["param"]["shape"][...])
-                    smax = 0
-                    xmin = np.inf
-                    xmax = -np.inf
-                if myname not in file:
-                    assert not any(m in file for m in m_exclude), "Wrong file type"
-                    continue
-                res = file[myname]["avalanches"]
-                x = res["xmin"][...]
-                smax = max(smax, x.size)
-                xmin = min(xmin, np.min(x))
-                xmax = max(xmax, np.max(x))
-
-        opts = dict(bins=args.nbins, mode="log", integer=True)
-        x_bin_edges = enstat.histogram.from_data(np.array([xmin, xmax]), bins=500).bin_edges
-        S_bin_edges = enstat.histogram.from_data(np.array([1, smax]), **opts).bin_edges
-        A_bin_edges = enstat.histogram.from_data(np.array([1, N]), **opts).bin_edges
-        ell_bin_edges = enstat.histogram.from_data(np.array([1, L]), **opts).bin_edges
-        if args.xc is None:
-            n = args.ndx // 2
-            x0_list = np.linspace(xmin, xmax, n)[:-2]
-            x0_list = np.concatenate((x0_list, np.linspace(x0_list[-1], xmax, n + 3)[1:]))
-        else:
-            x0_list = args.xc - np.logspace(-4, np.log10(args.xc), args.ndx)
-            x0_list = np.sort(np.concatenate(([args.xc], x0_list)))
-            output["xc"] = args.xc
-        output["x0"] = x0_list
-        output["files"] = sorted([f.name for f in args.files])
-
-        x_hist = enstat.histogram(bin_edges=x_bin_edges)
-        S_hist = [enstat.histogram(bin_edges=S_bin_edges) for _ in x0_list]
-        A_hist = [enstat.histogram(bin_edges=A_bin_edges) for _ in x0_list]
-        ell_hist = [enstat.histogram(bin_edges=ell_bin_edges) for _ in x0_list]
-        S_mean = [[enstat.scalar(dtype=int) for _ in range(args.means)] for _ in x0_list]
-        A_mean = [[enstat.scalar(dtype=int) for _ in range(args.means)] for _ in x0_list]
-        ell_mean = [[enstat.scalar(dtype=int) for _ in range(args.means)] for _ in x0_list]
-        fractal_A = [enstat.binned(bin_edges=A_bin_edges, names=["A", "S"]) for _ in x0_list]
-        fractal_ell = [enstat.binned(bin_edges=ell_bin_edges, names=["ell", "S"]) for _ in x0_list]
+        output["/settings/files"] = sorted([f.name for f in args.files])
+        output["/settings/x0"] = x0_list
+        if args.xc is not None:
+            output["/settings/xc"] = args.xc
 
         for ifile, f in enumerate(tqdm.tqdm(args.files)):
             with h5py.File(f) as file:
@@ -204,30 +215,30 @@ def EnsembleAvalanches(cli_args: list = None, myname=m_name):
             for name, value in zip(["x_hist"], [x_hist]):
                 value = dict(value)
                 for key in ["bin_edges", "count"]:
-                    storage.dump_overwrite(output, f"/{name}/{key}", value[key])
+                    storage.dump_overwrite(output, f"/data/{name}/{key}", value[key])
 
             for name, value in zip(["S_hist", "A_hist", "ell_hist"], [S_hist, A_hist, ell_hist]):
                 value = [dict(i0) for i0 in value]
                 for key in ["bin_edges", "count"]:
-                    storage.dump_overwrite(output, f"/{name}/{key}", [i0[key] for i0 in value])
+                    storage.dump_overwrite(output, f"/data/{name}/{key}", [i0[key] for i0 in value])
 
             for name, value in zip(["S_mean", "A_mean", "ell_mean"], [S_mean, A_mean, ell_mean]):
                 value = [[dict(p) for p in i0] for i0 in value]
                 for key in ["first", "second", "norm"]:
                     storage.dump_overwrite(
-                        output, f"/{name}/{key}", [[float(p[key]) for p in i0] for i0 in value]
+                        output, f"/data/{name}/{key}", [[float(p[key]) for p in i0] for i0 in value]
                     )
 
             for name, value in zip(["fractal_A", "fractal_ell"], [fractal_A, fractal_ell]):
                 for key in ["S", name.split("_")[1]]:
                     storage.dump_overwrite(
-                        output, f"/{name}/{key}/first", [i0[key].first for i0 in value]
+                        output, f"/data/{name}/{key}/first", [i0[key].first for i0 in value]
                     )
                     storage.dump_overwrite(
-                        output, f"/{name}/{key}/second", [i0[key].second for i0 in value]
+                        output, f"/data/{name}/{key}/second", [i0[key].second for i0 in value]
                     )
                     storage.dump_overwrite(
-                        output, f"/{name}/{key}/norm", [i0[key].norm for i0 in value]
+                        output, f"/data/{name}/{key}/norm", [i0[key].norm for i0 in value]
                     )
 
             output.flush()
