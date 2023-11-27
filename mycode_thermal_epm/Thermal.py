@@ -870,6 +870,7 @@ class MeasureAvalanches:
                     path = g5.join(root, name, key, field, root=True)
                     storage.dump_overwrite(file, path, [i0[field] for i0 in vdict])
 
+
 class MeasureClusters:
     def __init__(self, shape):
         self.shape = shape
@@ -894,6 +895,7 @@ class MeasureClusters:
         keep[0] = False  # background label=0
 
         return s[keep], ell[keep], a[keep]
+
 
 class MeasureChord:
     def __init__(self, shape):
@@ -929,6 +931,7 @@ class MeasureChord:
         keep[0] = False  # background label=0
 
         return s[keep], ell[keep]
+
 
 def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, doc) -> None:
     class MyFmt(

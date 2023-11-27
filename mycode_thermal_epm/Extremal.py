@@ -172,7 +172,9 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
         ell_bin_edges=enstat.histogram.from_data(np.array([1, L]), **opts).bin_edges,
         n_moments=args.means,
     )
-    x_hist = enstat.histogram(bin_edges=enstat.histogram.from_data(np.array([xmin, xmax]), bins=500).bin_edges)
+    x_hist = enstat.histogram(
+        bin_edges=enstat.histogram.from_data(np.array([xmin, xmax]), bins=500).bin_edges
+    )
 
     # collect statistics
     with h5py.File(args.output, "w") as output:
