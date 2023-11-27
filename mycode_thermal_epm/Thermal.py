@@ -756,6 +756,118 @@ def Plot(cli_args: list = None, myname: str = m_name) -> None:
         plt.close(fig)
 
 
+class MeasureAvalanches:
+    def __init__(
+        self,
+        n: int,
+        S_bin_edges: np.array,
+        A_bin_edges: np.array,
+        ell_bin_edges: np.array,
+        n_moments: int,
+    ):
+        self.line = False
+        self.measured = False
+
+        self.n_moments = n_moments
+
+        self.S_hist = [enstat.histogram(bin_edges=S_bin_edges) for _ in range(n)]
+        self.A_hist = [enstat.histogram(bin_edges=A_bin_edges) for _ in range(n)]
+        self.ell_hist = [enstat.histogram(bin_edges=ell_bin_edges) for _ in range(n)]
+
+        self.S_mean = [[enstat.scalar(dtype=int) for _ in range(n_moments)] for _ in range(n)]
+        self.A_mean = [[enstat.scalar(dtype=int) for _ in range(n_moments)] for _ in range(n)]
+        self.ell_mean = [[enstat.scalar(dtype=int) for _ in range(n_moments)] for _ in range(n)]
+
+        self.A_fractal = [enstat.binned(bin_edges=A_bin_edges, names=["A", "S"]) for _ in range(n)]
+        self.ell_fractal = [
+            enstat.binned(bin_edges=ell_bin_edges, names=["ell", "S"]) for _ in range(n)
+        ]
+
+    def add_sample(self, index: int, S: np.array, ell: np.array, A: np.array):
+        assert np.issubdtype(S.dtype, np.integer)
+        assert np.issubdtype(A.dtype, np.integer)
+        assert not np.issubdtype(ell.dtype, np.integer)
+
+        self.measured = True
+
+        self.S_hist[index] += S
+        self.A_hist[index] += A
+        self.ell_hist[index] += ell
+
+        self.A_fractal[index].add_sample(A, S)
+        self.ell_fractal[index].add_sample(ell, S)
+
+        # to avoid overflow: assume that "ell" is float
+        S = S.astype(int).astype("object")
+        A = A.astype(int).astype("object")
+
+        for p in range(self.n_moments):
+            self.S_mean[index][p] += S ** (p + 1)
+            self.A_mean[index][p] += A ** (p + 1)
+            self.ell_mean[index][p] += ell ** (p + 1)
+
+    def add_sample_1d(self, index: int, S: np.array, ell: np.array):
+        assert np.issubdtype(S.dtype, np.integer)
+        assert np.issubdtype(ell.dtype, np.integer)
+
+        self.measured = True
+        self.line = True
+
+        self.S_hist[index] += S
+        self.ell_hist[index] += ell
+
+        self.ell_fractal[index].add_sample(ell, S)
+
+        # to avoid overflow
+        S = S.astype(int).astype("object")
+        ell = ell.astype(int).astype("object")
+
+        for p in range(self.n_moments):
+            self.S_mean[index][p] += S ** (p + 1)
+            self.ell_mean[index][p] += ell ** (p + 1)
+
+    def store(self, file: h5py.File, root: str = ""):
+        names = ["S_hist", "ell_hist", "A_hist"]
+        values = [self.S_hist, self.ell_hist, self.A_hist]
+
+        if self.line:
+            names = names[:-1]
+            values = values[:-1]
+
+        for name, value in zip(names, values):
+            vdict = [dict(i0) for i0 in value]
+            for field in ["bin_edges", "count"]:
+                path = g5.join(root, name, field, root=True)
+                storage.dump_overwrite(file, path, [i0[field] for i0 in vdict])
+
+        names = ["S_mean", "ell_mean", "A_mean"]
+        values = [self.S_mean, self.ell_mean, self.A_mean]
+
+        if self.line:
+            names = names[:-1]
+            values = values[:-1]
+
+        for name, value in zip(names, values):
+            vdict = [[dict(p) for p in i0] for i0 in value]
+            for field in ["first", "second", "norm"]:
+                path = g5.join(root, name, field, root=True)
+                storage.dump_overwrite(file, path, [[float(p[field]) for p in i0] for i0 in vdict])
+
+        names = ["fractal_ell", "fractal_A"]
+        values = [self.ell_fractal, self.A_fractal]
+
+        if self.line:
+            names = names[:-1]
+            values = values[:-1]
+
+        for name, value in zip(names, values):
+            for key in ["S", name.split("_")[1]]:
+                vdict = [dict(i0[key]) for i0 in value]
+                for field in ["first", "second", "norm"]:
+                    path = g5.join(root, name, key, field, root=True)
+                    storage.dump_overwrite(file, path, [i0[field] for i0 in vdict])
+
+
 def EnsembleAvalanches_clusters(cli_args: list = None, myname=m_name):
     """
     Calculate properties of avalanches.
@@ -809,43 +921,26 @@ def EnsembleAvalanches_clusters(cli_args: list = None, myname=m_name):
     assert len(files) > 0
 
     # allocate statistics
-    init = False
     for f in files:
         with h5py.File(f) as file:
-            if myname not in file:
-                assert not any(n in file for n in [i for i in m_exclude if i != myname])
-                continue
-
             avalanches = file[myname]["avalanches"]
-            for iava in _index_avalanches(file[myname]):
-                t = avalanches["t"][iava, ...] - avalanches["t0"][iava]
-                idx = avalanches["idx"][iava, ...]
+            indices = _index_avalanches(file[myname])
+            if len(indices) == 0:
+                continue
+            idx = avalanches["idx"][indices[0], ...]
 
-                structure = [eye.Structure(shape=shape) for _ in t_measure]
-                mean_t = [enstat.scalar() for _ in t_measure]
-
-                opts = dict(bins=args.bins, mode="log", integer=True)
-                edges = enstat.histogram.from_data(np.array([1, idx.size]), **opts).bin_edges
-                S_hist = [enstat.histogram(bin_edges=edges) for _ in t_measure]
-
-                edges = enstat.histogram.from_data(np.array([1, np.prod(shape)]), **opts).bin_edges
-                A_hist = [enstat.histogram(bin_edges=edges) for _ in t_measure]
-
-                edges = enstat.histogram.from_data(np.array([1, np.max(shape)]), **opts).bin_edges
-                ell_hist = [enstat.histogram(bin_edges=edges) for _ in t_measure]
-
-                n = args.means
-                S_mean = [[enstat.scalar(dtype=int) for _ in range(n)] for _ in t_measure]
-                A_mean = [[enstat.scalar(dtype=int) for _ in range(n)] for _ in t_measure]
-                ell_mean = [[enstat.scalar(dtype=int) for _ in range(n)] for _ in t_measure]
-
-                init = True
-                break
-
-            if init:
-                break
-
-    assert init, "Did not find any data"
+        L = np.max(shape)
+        opts = dict(bins=args.bins, mode="log", integer=True)
+        measurement = MeasureAvalanches(
+            n=len(t_measure),
+            S_bin_edges=enstat.histogram.from_data(np.array([1, idx.size]), **opts).bin_edges,
+            A_bin_edges=enstat.histogram.from_data(np.array([1, np.prod(shape)]), **opts).bin_edges,
+            ell_bin_edges=enstat.histogram.from_data(np.array([1, L]), **opts).bin_edges,
+            n_moments=args.means,
+        )
+        structure = [eye.Structure(shape=shape) for _ in t_measure]
+        mean_t = [enstat.scalar() for _ in t_measure]
+        break
 
     # collect statistics
     with h5py.File(args.output, "w") as output:
@@ -861,8 +956,6 @@ def EnsembleAvalanches_clusters(cli_args: list = None, myname=m_name):
         # measure
         for ifile, f in enumerate(tqdm.tqdm(files)):
             with h5py.File(f) as file:
-                if myname not in file:
-                    continue
                 avalanches = file[myname]["avalanches"]
                 for iava in _index_avalanches(file[myname]):
                     t = avalanches["t"][iava, ...] - avalanches["t0"][iava]
@@ -903,15 +996,7 @@ def EnsembleAvalanches_clusters(cli_args: list = None, myname=m_name):
                             ell = ell[keep]
 
                             # update statistics
-                            S_hist[i0] += s
-                            A_hist[i0] += a
-                            ell_hist[i0] += ell
-                            s = s.astype(int).astype("object")  # to avoid overflow (ell=float)
-                            a = a.astype(int).astype("object")
-                            for p in range(args.means):
-                                S_mean[i0][p] += s ** (p + 1)
-                                A_mean[i0][p] += a ** (p + 1)
-                                ell_mean[i0][p] += ell ** (p + 1)
+                            measurement.add_sample(i0, s, ell, a)
 
                         # jump the next measurement
                         if t[-1] <= 2 * tau_alpha:
@@ -938,18 +1023,7 @@ def EnsembleAvalanches_clusters(cli_args: list = None, myname=m_name):
                         np.array([i0[key][:, 0] for i0 in value], dtype=np.float64),
                     )
 
-            for name, value in zip(["S_hist", "A_hist", "ell_hist"], [S_hist, A_hist, ell_hist]):
-                value = [dict(i0) for i0 in value]
-                for key in ["bin_edges", "count"]:
-                    storage.dump_overwrite(output, f"/data/{name}/{key}", [i0[key] for i0 in value])
-
-            for name, value in zip(["S_mean", "A_mean", "ell_mean"], [S_mean, A_mean, ell_mean]):
-                value = [[dict(p) for p in i0] for i0 in value]
-                for key in ["first", "second", "norm"]:
-                    storage.dump_overwrite(
-                        output, f"/data/{name}/{key}", [[float(p[key]) for p in i0] for i0 in value]
-                    )
-
+            measurement.store(file=output, root="/data")
             output.flush()
 
 
@@ -1007,38 +1081,26 @@ def EnsembleAvalanches_chord(cli_args: list = None, myname=m_name):
     assert len(files) > 0
 
     # allocate statistics
-    init = False
     for f in files:
         with h5py.File(f) as file:
-            if myname not in file:
-                assert not any(n in file for n in [i for i in m_exclude if i != myname])
-                continue
-
             avalanches = file[myname]["avalanches"]
-            for iava in _index_avalanches(file[myname]):
-                t = avalanches["t"][iava, ...] - avalanches["t0"][iava]
-                idx = avalanches["idx"][iava, ...]
+            indices = _index_avalanches(file[myname])
+            if len(indices) == 0:
+                continue
+            idx = avalanches["idx"][indices[0], ...]
 
-                mean_t = [enstat.scalar() for _ in t_measure]
-
-                opts = dict(bins=args.bins, mode="log", integer=True)
-                edges = enstat.histogram.from_data(np.array([1, idx.size]), **opts).bin_edges
-                S_hist = [enstat.histogram(bin_edges=edges) for _ in t_measure]
-
-                edges = enstat.histogram.from_data(np.array([1, np.max(shape)]), **opts).bin_edges
-                ell_hist = [enstat.histogram(bin_edges=edges) for _ in t_measure]
-
-                n = args.means
-                S_mean = [[enstat.scalar(dtype=int) for _ in range(n)] for _ in t_measure]
-                ell_mean = [[enstat.scalar(dtype=int) for _ in range(n)] for _ in t_measure]
-
-                init = True
-                break
-
-            if init:
-                break
-
-    assert init, "Did not find any data"
+        L = np.max(shape)
+        opts = dict(bins=args.bins, mode="log", integer=True)
+        measurement = MeasureAvalanches(
+            n=len(t_measure),
+            S_bin_edges=enstat.histogram.from_data(np.array([1, idx.size]), **opts).bin_edges,
+            A_bin_edges=enstat.histogram.from_data(np.array([1, np.prod(shape)]), **opts).bin_edges,
+            ell_bin_edges=enstat.histogram.from_data(np.array([1, L]), **opts).bin_edges,
+            n_moments=args.means,
+        )
+        structure = [eye.Structure(shape=shape) for _ in t_measure]
+        mean_t = [enstat.scalar() for _ in t_measure]
+        break
 
     # collect statistics
     with h5py.File(args.output, "w") as output:
@@ -1100,13 +1162,7 @@ def EnsembleAvalanches_chord(cli_args: list = None, myname=m_name):
                             ell = ell[keep]
 
                             # update statistics
-                            S_hist[i0] += s
-                            ell_hist[i0] += ell
-                            s = s.astype(int).astype("object")  # to avoid overflow (ell=float)
-                            ell = ell.astype(int).astype("object")
-                            for p in range(args.means):
-                                S_mean[i0][p] += s ** (p + 1)
-                                ell_mean[i0][p] += ell ** (p + 1)
+                            measurement.add_sample_1d(i0, s, ell)
 
                         # jump the next measurement
                         if t[-1] <= 2 * tau_alpha:
@@ -1115,25 +1171,5 @@ def EnsembleAvalanches_chord(cli_args: list = None, myname=m_name):
                         t = t[i:] - t[i]
                         idx = idx[i:]
 
-            for name, value in zip(["tau"], [mean_t]):
-                value = [dict(i0) for i0 in value]
-                for key in ["first", "second", "norm"]:
-                    storage.dump_overwrite(
-                        output,
-                        f"/data/{name}/{key}",
-                        np.array([float(i0[key]) for i0 in value], dtype=np.float64),
-                    )
-
-            for name, value in zip(["S_hist", "ell_hist"], [S_hist, ell_hist]):
-                value = [dict(i0) for i0 in value]
-                for key in ["bin_edges", "count"]:
-                    storage.dump_overwrite(output, f"/data/{name}/{key}", [i0[key] for i0 in value])
-
-            for name, value in zip(["S_mean", "ell_mean"], [S_mean, ell_mean]):
-                value = [[dict(p) for p in i0] for i0 in value]
-                for key in ["first", "second", "norm"]:
-                    storage.dump_overwrite(
-                        output, f"/data/{name}/{key}", [[float(p[key]) for p in i0] for i0 in value]
-                    )
-
+            measurement.store(file=output, root="/data")
             output.flush()
