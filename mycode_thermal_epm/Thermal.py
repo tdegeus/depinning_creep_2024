@@ -871,19 +871,30 @@ class MeasureAvalanches:
                     storage.dump_overwrite(file, path, [i0[field] for i0 in vdict])
 
 
-class MeasureClusters:
+class MySegmenterBasic:
     def __init__(self, shape):
         self.shape = shape
         self.N = np.prod(shape)
         self.S = np.zeros(shape, dtype=int)
-        self.segmenter = eye.ClusterLabeller(shape=shape, periodic=True)
 
     def reset(self):
         self.S *= 0
-        self.segmenter.reset()
 
     def add_points(self, idx):
         self.S += np.bincount(idx, minlength=self.N).reshape(self.shape)
+
+
+class MySegmenterClusters(MySegmenterBasic):
+    def __init__(self, shape):
+        super().__init__(shape)
+        self.segmenter = eye.ClusterLabeller(shape=shape, periodic=True)
+
+    def reset(self):
+        super().reset()
+        self.segmenter.reset()
+
+    def add_points(self, idx):
+        super().add_points(idx)
         self.segmenter.add_points(np.copy(idx))
         self.segmenter.prune()
 
@@ -896,18 +907,16 @@ class MeasureClusters:
         return s, ell, a
 
 
-class MeasureChord:
+class MySegmenterChord(MySegmenterBasic):
     def __init__(self, shape):
-        self.shape = shape
-        self.N = np.prod(shape)
-        self.S = np.zeros(shape, dtype=int)
+        super().__init__(shape)
         self.nchord = max(int(0.1 * np.min(shape)), 1)
 
     def reset(self):
-        self.S *= 0
+        super().reset()
 
     def add_points(self, idx):
-        self.S += np.bincount(idx, minlength=self.N).reshape(self.shape)
+        super().add_points(idx)
 
         rows = np.random.choice(np.arange(self.shape[0]), size=self.nchord, replace=False)
         label_offset = 0
@@ -931,7 +940,7 @@ class MeasureChord:
         labels = eye.labels_prune(labels)
         ell = np.bincount(labels)[1:]
         s = np.bincount(labels, weights=sizes).astype(int)[1:]
-        return ell, s
+        return s, ell
 
 
 def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, doc) -> None:
@@ -982,25 +991,29 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
     assert len(files) > 0
 
     # allocate statistics
+    max_s = 0
     for f in files:
         with h5py.File(f) as file:
-            avalanches = file[myname]["avalanches"]
-            indices = _index_avalanches(file[myname])
-            if len(indices) == 0:
-                continue
-            idx = avalanches["idx"][indices[0], ...]
+            max_s = max(max_s, file[myname]["avalanches"]["idx"].shape[1])
 
-        L = np.max(shape)
-        opts = dict(bins=args.bins, mode="log", integer=True)
-        measurement = MeasureAvalanches(
-            n=len(t_measure),
-            S_bin_edges=enstat.histogram.from_data(np.array([1, idx.size]), **opts).bin_edges,
-            A_bin_edges=enstat.histogram.from_data(np.array([1, np.prod(shape)]), **opts).bin_edges,
-            ell_bin_edges=enstat.histogram.from_data(np.array([1, L]), **opts).bin_edges,
-            n_moments=args.means,
-        )
-        structure = [eye.Structure(shape=shape) for _ in t_measure]
         mean_t = [enstat.scalar() for _ in t_measure]
+
+        if mymode in ["chord", "clusters"]:
+            L = np.max(shape)
+            N = np.prod(shape)
+            opts = dict(bins=args.bins, mode="log", integer=True)
+            measurement = MeasureAvalanches(
+                n=len(t_measure),
+                S_bin_edges=enstat.histogram.from_data(np.array([1, max_s]), **opts).bin_edges,
+                A_bin_edges=enstat.histogram.from_data(np.array([1, N]), **opts).bin_edges,
+                ell_bin_edges=enstat.histogram.from_data(np.array([1, L]), **opts).bin_edges,
+                n_moments=args.means,
+            )
+        elif mymode == "structure":
+            structure = [eye.Structure(shape=shape) for _ in t_measure]
+        else:
+            raise ValueError(f"Unknown mode {mymode}")
+
         break
 
     # collect statistics
@@ -1012,10 +1025,12 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
             g5.copy(file, output, ["/param"])
 
         if mymode == "chord":
-            mysegmenter = MeasureChord(shape)
+            mysegmenter = MySegmenterChord(shape)
             output["/settings/nchord"] = mysegmenter.nchord
+        elif mymode == "clusters":
+            mysegmenter = MySegmenterClusters(shape)
         else:
-            mysegmenter = MeasureClusters(shape)
+            mysegmenter = MySegmenterBasic(shape)
 
         # measure
         for ifile, f in enumerate(tqdm.tqdm(files)):
@@ -1030,13 +1045,19 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
                             break
 
                         mysegmenter.reset()
+
                         for i0, t0 in enumerate(t_measure):
                             i = np.argmax(t > t0)
                             if i == 0:
                                 continue
-                            measurement.add_sample(i0, *mysegmenter.add_points(idx[:i]))
-                            structure[i0] += mysegmenter.S
+
                             mean_t[i0] += t[:i]
+                            args = mysegmenter.add_points(idx[:i])
+                            if mymode == "structure":
+                                structure[i0] += mysegmenter.S
+                            else:
+                                measurement.add_sample(i0, *args)
+
                             idx = idx[i:]
                             t = t[i:]
 
@@ -1056,16 +1077,18 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
                         np.array([float(i0[key]) for i0 in value], dtype=np.float64),
                     )
 
-            for name, value in zip(["structure"], [structure]):
-                value = [dict(i0) for i0 in value]
-                for key in ["first", "second", "norm"]:
-                    storage.dump_overwrite(
-                        output,
-                        f"/data/{name}/{key}",
-                        np.array([i0[key][:, 0] for i0 in value], dtype=np.float64),
-                    )
+            if mymode == "structure":
+                for name, value in zip(["structure"], [structure]):
+                    value = [dict(i0) for i0 in value]
+                    for key in ["first", "second", "norm"]:
+                        storage.dump_overwrite(
+                            output,
+                            f"/data/{name}/{key}",
+                            np.array([i0[key][:, 0] for i0 in value], dtype=np.float64),
+                        )
+            else:
+                measurement.store(file=output, root="/data")
 
-            measurement.store(file=output, root="/data")
             output.flush()
 
 
@@ -1074,11 +1097,10 @@ def EnsembleAvalanches_clusters(cli_args: list = None, myname=m_name):
     Calculate properties of avalanches.
     -   Measure at different times compared to an arbitrary reference time.
     -   Avalanches are segmented by spatial clustering.
-    -   The interface is arbitrarily assumed flat at the reference time.
     """
     funcname = inspect.getframeinfo(inspect.currentframe()).function
     doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
-    return EnsembleAvalanches_base(cli_args, myname, "cluster", funcname, doc)
+    return EnsembleAvalanches_base(cli_args, myname, "clusters", funcname, doc)
 
 
 def EnsembleAvalanches_chord(cli_args: list = None, myname=m_name):
@@ -1090,3 +1112,14 @@ def EnsembleAvalanches_chord(cli_args: list = None, myname=m_name):
     funcname = inspect.getframeinfo(inspect.currentframe()).function
     doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
     return EnsembleAvalanches_base(cli_args, myname, "chord", funcname, doc)
+
+
+def EnsembleAvalanches_structure(cli_args: list = None, myname=m_name):
+    """
+    Measure the structure factor of snapshots.
+    -   Measure at different times compared to an arbitrary reference time.
+    -   The interface is arbitrarily assumed flat at the reference time.
+    """
+    funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    return EnsembleAvalanches_base(cli_args, myname, "structure", funcname, doc)

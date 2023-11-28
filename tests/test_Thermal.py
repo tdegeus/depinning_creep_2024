@@ -55,6 +55,7 @@ class MyThermal(unittest.TestCase):
         Thermal.EnsembleStructure(["--dev", "sim.h5"])
         Thermal.EnsembleAvalanches_clusters(["--dev", "info.h5"])
         Thermal.EnsembleAvalanches_chord(["--dev", "info.h5"])
+        Thermal.EnsembleAvalanches_structure(["--dev", "info.h5"])
 
         with h5py.File("sim.h5") as file:
             assert np.allclose(
