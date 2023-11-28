@@ -885,16 +885,15 @@ class MeasureClusters:
     def add_points(self, idx):
         self.S += np.bincount(idx, minlength=self.N).reshape(self.shape)
         self.segmenter.add_points(np.copy(idx))
+        self.segmenter.prune()
 
         labels = self.segmenter.labels.astype(int).ravel()
-        a = np.bincount(labels)
-        s = np.bincount(labels, weights=self.S.ravel()).astype(int)
+        keep = labels > 0
+        labels = labels[keep]
+        a = np.bincount(labels)[1:]
+        s = np.bincount(labels, weights=self.S.ravel()[keep]).astype(int)[1:]
         ell = Preparation.convert_A_to_ell(a, len(self.shape))
-
-        keep = a > 0  # merged labels are empty
-        keep[0] = False  # background label=0
-
-        return s[keep], ell[keep], a[keep]
+        return s, ell, a
 
 
 class MeasureChord:
@@ -917,21 +916,22 @@ class MeasureChord:
         for row in rows:
             srow = self.S[row, ...].copy()
             lrow = eye.clusters(srow, periodic=True)
-            lrow = np.where(lrow > 0, lrow + label_offset, 0)
+            keep = lrow > 0
+            if np.sum(keep) == 0:
+                continue
+            lrow = lrow[keep] + label_offset
+            srow = srow[keep]
             label_offset += np.max(lrow)
             labels += list(lrow.astype(int))
             sizes += list(srow.astype(int))
 
-        labels = np.array(labels, dtype=int)
-        sizes = np.array(sizes, dtype=int)
-        assert np.all(labels[sizes > 0] > 0)
+        if len(labels) == 0:
+            return np.array([], dtype=int), np.array([], dtype=int)
 
-        ell = np.bincount(labels)
-        s = np.bincount(labels, weights=sizes).astype(int)
-        keep = s > 0  # merged labels are empty
-        keep[0] = False  # background label=0
-
-        return s[keep], ell[keep]
+        labels = eye.labels_prune(labels)
+        ell = np.bincount(labels)[1:]
+        s = np.bincount(labels, weights=sizes).astype(int)[1:]
+        return ell, s
 
 
 def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, doc) -> None:
