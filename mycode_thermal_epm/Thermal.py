@@ -1062,9 +1062,9 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
                             t = t[i:]
 
                         # jump the next measurement
-                        if t[-1] <= 2 * tau_alpha:
+                        if t[-1] <= 3 * tau_alpha:
                             break
-                        i = np.argmax(t > 2 * tau_alpha)
+                        i = np.argmax(t > 3 * tau_alpha)
                         t = t[i:] - t[i]
                         idx = idx[i:]
 
