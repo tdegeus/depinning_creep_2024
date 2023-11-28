@@ -911,19 +911,20 @@ class MeasureChord:
         self.S += np.bincount(idx, minlength=self.N).reshape(self.shape)
 
         rows = np.random.choice(np.arange(self.shape[0]), size=self.nchord, replace=False)
-        start_label = 0
+        label_offset = 0
         labels = []
         sizes = []
         for row in rows:
             srow = self.S[row, ...].copy()
             lrow = eye.clusters(srow, periodic=True)
-            lrow = np.where(lrow > 1, lrow + start_label, 0)
-            start_label = np.max(lrow)
+            lrow = np.where(lrow > 0, lrow + label_offset, 0)
+            label_offset += np.max(lrow)
             labels += list(lrow.astype(int))
             sizes += list(srow.astype(int))
 
         labels = np.array(labels, dtype=int)
         sizes = np.array(sizes, dtype=int)
+        assert np.all(labels[sizes > 0] > 0)
 
         ell = np.bincount(labels)
         s = np.bincount(labels, weights=sizes).astype(int)
