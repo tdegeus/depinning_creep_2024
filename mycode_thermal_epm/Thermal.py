@@ -1021,7 +1021,7 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
         for ifile, f in enumerate(tqdm.tqdm(files)):
             with h5py.File(f) as file:
                 avalanches = file[myname]["avalanches"]
-                for iava in _index_avalanches(file[myname]):
+                for iava in tqdm.tqdm(_index_avalanches(file[myname])):
                     t = avalanches["t"][iava, ...] - avalanches["t0"][iava]
                     idx = avalanches["idx"][iava, ...].astype(int)
 
