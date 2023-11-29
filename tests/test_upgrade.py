@@ -3,6 +3,7 @@ import pathlib
 import shutil
 import sys
 import unittest
+import warnings
 from functools import partialmethod
 
 import h5py
@@ -20,6 +21,8 @@ from mycode_thermal_epm import AQS  # noqa: E402
 from mycode_thermal_epm import Extremal  # noqa: E402
 from mycode_thermal_epm import Thermal  # noqa: E402
 from mycode_thermal_epm import Preparation  # noqa: E402
+
+run = len([path for path in (root / "tests" / "data_version=2.0").rglob("*h5")]) > 0
 
 
 class MyThermal(unittest.TestCase):
@@ -44,6 +47,10 @@ class MyThermal(unittest.TestCase):
         os.chdir(self.origin)
 
     def test_upgrade(self):
+        if not run:
+            warnings.warn("Skipping test_upgrade")
+            return
+
         Preparation.UpgradeData(["--dev", "Preparation.h5"])
         AQS.UpgradeData(["--dev", "AQS.h5"])
         Extremal.UpgradeData(["--dev", "Extremal.h5", "--insert", "ExtremalAvalanche.h5"])
