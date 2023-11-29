@@ -167,9 +167,11 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
         n = args.ndx // 2
         x0_list = np.linspace(xmin, xmax, n)[:-2]
         x0_list = np.concatenate((x0_list, np.linspace(x0_list[-1], xmax, n + 3)[1:]))
+        xmin_bin_edges = enstat.histogram.from_data(np.array([xmin, xmax]), bins=500).bin_edges
     else:
         x0_list = args.xc - np.logspace(-4, np.log10(args.xc), args.ndx)
         x0_list = np.sort(np.concatenate(([args.xc], x0_list)))
+        xmin_bin_edges = enstat.histogram.from_data([1e-6, 1e0], mode="log", bins=500).bin_edges
 
     opts = dict(bins=args.bins, mode="log", integer=True)
     measurement = Thermal.MeasureAvalanches(
@@ -179,9 +181,7 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
         ell_bin_edges=enstat.histogram.from_data(np.array([1, L]), **opts).bin_edges,
         n_moments=args.means,
     )
-    x_hist = enstat.histogram(
-        bin_edges=enstat.histogram.from_data(np.array([xmin, xmax]), bins=500).bin_edges
-    )
+    x_hist = enstat.histogram(bin_edges=xmin_bin_edges)
 
     # collect statistics
     with h5py.File(args.output, "w") as output:
@@ -200,7 +200,13 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
                 for iava in range(res["xmin"].shape[0]):
                     idx = res["idx"][iava, ...]
                     xmin = res["xmin"][iava, ...]
-                    x_hist += xmin
+                    if args.xc is None:
+                        x_hist += xmin
+                    else:
+                        dx = args.xc - xmin
+                        dx = dx[dx >= 0]
+                        x_hist += dx
+
                     for i0, x0 in enumerate(tqdm.tqdm(x0_list)):
                         S, A, _ = epm.segment_avalanche(x0 >= xmin, idx, first=False, last=False)
                         ell = np.sqrt(A)
