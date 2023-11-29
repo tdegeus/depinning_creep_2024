@@ -52,7 +52,7 @@ if __name__ == "__main__":
         )
         Thermal.Run(["--dev", "-n", 6, "--force-interval", "Thermal.h5"])
         Thermal.EnsembleInfo(["--dev", "-o", "Thermal_info.h5", "Thermal.h5"])
-        Thermal.EnsembleStructure(["--dev", "-o", "Thermal_structure.h5", "Thermal.h5"])
+        Thermal.EnsembleStructure(["--dev", "-o", "Thermal_structure.h5", "Thermal_info.h5"])
         Thermal.EnsembleAvalanches_clusters(
             ["--dev", "-o", "Thermal_avalanches.h5", "Thermal_info.h5"]
         )
@@ -60,7 +60,7 @@ if __name__ == "__main__":
         Extremal.BranchPreparation(["--dev", "Preparation.h5", "Extremal.h5", "--sigmay", 1.0, 0.3])
         Extremal.Run(["--dev", "-n", 6, "--force-interval", "Extremal.h5"])
         Extremal.EnsembleInfo(["--dev", "-o", "Extremal_info.h5", "Extremal.h5"])
-        Extremal.EnsembleStructure(["--dev", "-o", "Extremal_structure.h5", "Extremal.h5"])
+        Extremal.EnsembleStructure(["--dev", "-o", "Extremal_structure.h5", "Extremal_info.h5"])
 
         ExtremalAvalanche.BranchExtremal(["--dev", "Extremal.h5", "ExtremalAvalanche.h5"])
         ExtremalAvalanche.Run(["--dev", "ExtremalAvalanche.h5"])

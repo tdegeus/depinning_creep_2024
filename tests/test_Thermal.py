@@ -52,7 +52,7 @@ class MyThermal(unittest.TestCase):
         Thermal.BranchPreparation(["--dev", "id=0000.h5", "sim.h5"] + args)
         Thermal.Run(["--dev", "-n", 200, "sim.h5"])
         Thermal.EnsembleInfo(["--dev", "-o", "info.h5", "sim.h5"])
-        Thermal.EnsembleStructure(["--dev", "sim.h5"])
+        Thermal.EnsembleStructure(["--dev", "info.h5"])
         Thermal.EnsembleAvalanches_clusters(["--dev", "info.h5"])
         Thermal.EnsembleAvalanches_chord(["--dev", "info.h5"])
         Thermal.EnsembleAvalanches_structure(["--dev", "info.h5"])

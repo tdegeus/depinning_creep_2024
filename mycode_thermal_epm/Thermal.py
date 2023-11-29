@@ -550,53 +550,66 @@ def EnsembleInfo(cli_args: list = None, myname: str = m_name) -> None:
 
     args = tools._parse(parser, cli_args)
     assert all([f.exists() for f in args.files])
+    assert len(args.files) > 0
     tools._check_overwrite_file(args.output, args.force)
 
-    if myname == m_name:
+    with h5py.File(args.files[0]) as ref_file:
+        param_paths = sorted(g5.getdatapaths(ref_file, root="/param"))
+        param_paths.remove("/param/seed")
+        N = np.prod(ref_file["param"]["shape"][...])
+        pdfx = enstat.histogram(bin_edges=np.linspace(0, 3, args.nbin_x), bound_error="ignore")
+
         tmin = np.inf
         tmax = 0
         nsim = 0
+        seeds = []
         for f in tqdm.tqdm(args.files):
             with h5py.File(f) as file:
-                assert Preparation.get_data_version(file) == data_version
-                assert not any(n in file for n in [i for i in m_exclude if i != myname])
+                assert Preparation.get_data_version(file) == data_version, f"Incompatible data: {f}"
+
+                excl = [i for i in m_exclude if i != myname]
+                assert not any(n in file for n in excl), f"Wrong module: {f}"
+
+                eq = sorted(g5.compare(file, ref_file, param_paths)["=="])
+                assert eq == param_paths, f"Wrong parameters: {f}"
+
+                seeds.append(file["param"]["seed"][...])
+
+                if myname != m_name:
+                    nsim += 1
+                    continue
+
                 if f"/{myname}/avalanches/t" not in file:
                     continue
+
                 nsim += 1
                 avalanches = file[myname]["avalanches"]
                 for i in range(avalanches["t"].shape[0]):
                     tmin = min(tmin, avalanches["t"][i, 0] - avalanches["t0"][i])
                     tmax = max(tmax, avalanches["t"][i, -1] - avalanches["t0"][i])
 
+        assert np.unique(seeds).size == len(seeds), "Duplicate seeds"
         if nsim == 0:
             return
+
+        if myname == m_name:
+            binned = enstat.binned(
+                bin_edges=enstat.histogram.from_data(
+                    data=np.array([max(tmin, 1e-9), tmax]), bins=args.nbin_t, mode="log"
+                ).bin_edges,
+                names=["t", "S", "Ssq", "A", "Asq", "ell"],  # N.B.: ell^2 == A
+                bound_error="ignore",
+            )
 
     with h5py.File(args.output, "w") as output:
         tools.create_check_meta(output, tools.path_meta(myname, funcname), dev=args.develop)
         output["files"] = sorted([f.name for f in args.files])
         output.create_group("hist_x")
+        with h5py.File(args.files[0]) as file:
+            g5.copy(file, output, ["/param"])
 
         for ifile, f in enumerate(tqdm.tqdm(args.files)):
             with h5py.File(f) as file:
-                if ifile == 0:
-                    g5.copy(file, output, ["/param"])
-
-                # allocate output
-                if ifile == 0:
-                    N = np.prod(file["param"]["shape"][...])
-                    pdfx = enstat.histogram(
-                        bin_edges=np.linspace(0, 3, args.nbin_x), bound_error="ignore"
-                    )
-
-                if ifile == 0 and myname == m_name:
-                    binned = enstat.binned(
-                        bin_edges=enstat.histogram.from_data(
-                            data=np.array([max(tmin, 1e-9), tmax]), bins=args.nbin_t, mode="log"
-                        ).bin_edges,
-                        names=["t", "S", "Ssq", "A", "Asq", "ell"],  # N.B.: ell^2 == A
-                        bound_error="ignore",
-                    )
-
                 # collect from snapshots
                 indices = _index_snapshots(file[myname])
                 pdfx += Preparation.compute_x(
@@ -669,17 +682,24 @@ def EnsembleStructure(cli_args: list = None, myname: str = m_name):
     parser.add_argument(
         "-o", "--output", type=pathlib.Path, help="Output file", default=f_structure
     )
-    parser.add_argument("files", nargs="*", type=pathlib.Path, help="Simulation files")
+    parser.add_argument("info", type=pathlib.Path, help="EnsembleInfo: read files")
 
     args = tools._parse(parser, cli_args)
-    assert all([f.exists() for f in args.files])
+    assert args.info.exists()
     tools._check_overwrite_file(args.output, args.force)
+
+    with h5py.File(args.info) as file:
+        root = args.info.parent
+        files = [root / f for f in file["files"].asstr()[...]]
+
+    files = [f for f in files if f.exists()]
+    assert len(files) > 0
 
     with h5py.File(args.output, "w") as output:
         tools.create_check_meta(output, tools.path_meta(myname, funcname), dev=args.develop)
-        output["files"] = sorted([f.name for f in args.files])
+        output["/settings/files"] = sorted([f.name for f in files])
 
-        for ifile, f in enumerate(tqdm.tqdm(args.files)):
+        for ifile, f in enumerate(tqdm.tqdm(files)):
             with h5py.File(f) as file:
                 if ifile == 0:
                     g5.copy(file, output, ["/param"])
@@ -946,6 +966,10 @@ class MySegmenterChord(MySegmenterBasic):
 def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, doc) -> None:
     """
     Calculate properties of avalanches.
+
+    .. warning::
+
+        This function assumes separately stored "avalanches" sequences as independent.
     """
 
     class MyFmt(
@@ -974,7 +998,7 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
     parser.add_argument(
         "--means", type=int, default=4, help="Compute <S, A, ell>**(i + 1) for i in range(means)"
     )
-    parser.add_argument("info", type=pathlib.Path, help="EnsembleInfo: read tau_alpha")
+    parser.add_argument("info", type=pathlib.Path, help="EnsembleInfo: read files")
 
     args = tools._parse(parser, cli_args)
     assert args.info.exists()
@@ -990,35 +1014,42 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
     files = [f for f in files if f.exists()]
     assert len(files) > 0
 
-    # allocate statistics
+    # size estimate
     max_s = 0
+    interval = []
     for f in files:
         with h5py.File(f) as file:
-            max_s = max(max_s, file[myname]["avalanches"]["idx"].shape[1])
+            avalanches = file[myname]["avalanches"]
+            max_s = max(max_s, avalanches["idx"].shape[1])
+            i = []
+            for iava in _index_avalanches(file[myname]):
+                i.append((avalanches["t"][iava, -1] - avalanches["t0"][iava]) / tau_alpha)
+            interval.append(i)
+    nevents = [[int(1 + np.floor(t / 2)) for t in i] for i in interval]
 
-        mean_t = [enstat.scalar() for _ in t_measure]
+    # allocate statistics
+    mean_t = [enstat.scalar() for _ in t_measure]
 
-        if mymode in ["chord", "clusters"]:
-            L = np.max(shape)
-            N = np.prod(shape)
-            opts = dict(bins=args.bins, mode="log", integer=True)
-            measurement = MeasureAvalanches(
-                n=len(t_measure),
-                S_bin_edges=enstat.histogram.from_data(np.array([1, max_s]), **opts).bin_edges,
-                A_bin_edges=enstat.histogram.from_data(np.array([1, N]), **opts).bin_edges,
-                ell_bin_edges=enstat.histogram.from_data(np.array([1, L]), **opts).bin_edges,
-                n_moments=args.means,
-            )
-        elif mymode == "structure":
-            structure = [eye.Structure(shape=shape) for _ in t_measure]
-        else:
-            raise ValueError(f"Unknown mode {mymode}")
-
-        break
+    if mymode in ["chord", "clusters"]:
+        L = np.max(shape)
+        N = np.prod(shape)
+        opts = dict(bins=args.bins, mode="log", integer=True)
+        measurement = MeasureAvalanches(
+            n=len(t_measure),
+            S_bin_edges=enstat.histogram.from_data(np.array([1, max_s]), **opts).bin_edges,
+            A_bin_edges=enstat.histogram.from_data(np.array([1, N]), **opts).bin_edges,
+            ell_bin_edges=enstat.histogram.from_data(np.array([1, L]), **opts).bin_edges,
+            n_moments=args.means,
+        )
+    elif mymode == "structure":
+        structure = [eye.Structure(shape=shape) for _ in t_measure]
+    else:
+        raise ValueError(f"Unknown mode {mymode}")
 
     # collect statistics
     with h5py.File(args.output, "w") as output:
         tools.create_check_meta(output, tools.path_meta(myname, funcname), dev=args.develop)
+        output["/settings/files"] = sorted([f.name for f in files])
         output["/settings/tau"] = t_measure
         output["/settings/tau_alpha"] = tau_alpha
         with h5py.File(files[0]) as file:
@@ -1033,17 +1064,21 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
             mysegmenter = MySegmenterBasic(shape)
 
         # measure
-        for ifile, f in enumerate(tqdm.tqdm(files)):
+        pbar = tqdm.tqdm(total=np.sum([sum(i) for i in nevents]))
+        for ifile, f in enumerate(files):
             with h5py.File(f) as file:
                 avalanches = file[myname]["avalanches"]
-                for iava in tqdm.tqdm(_index_avalanches(file[myname])):
+                for iava in _index_avalanches(file[myname]):
                     t = avalanches["t"][iava, ...] - avalanches["t0"][iava]
                     idx = avalanches["idx"][iava, ...].astype(int)
 
-                    while True:
+                    for ievent in range(sys.maxsize):
                         if t[-1] <= t_measure[-1]:
                             break
 
+                        pbar.n += 1
+                        pbar.set_description(f"{f.name}({iava}-{ievent})")
+                        pbar.refresh()
                         mysegmenter.reset()
 
                         for i0, t0 in enumerate(t_measure):
@@ -1062,9 +1097,9 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
                             t = t[i:]
 
                         # jump the next measurement
-                        if t[-1] <= 3 * tau_alpha:
+                        if t[-1] <= 2 * tau_alpha:
                             break
-                        i = np.argmax(t > 3 * tau_alpha)
+                        i = np.argmax(t > 2 * tau_alpha)
                         t = t[i:] - t[i]
                         idx = idx[i:]
 

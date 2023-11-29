@@ -132,14 +132,21 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
     parser.add_argument(
         "--means", type=int, default=4, help="Compute <S, A, ell>**(i + 1) for i in range(means)"
     )
-    parser.add_argument("files", nargs="*", type=pathlib.Path, help="Simulation files")
+    parser.add_argument("info", type=pathlib.Path, help="EnsembleInfo: read files")
 
     args = tools._parse(parser, cli_args)
-    assert all([f.exists() for f in args.files])
+    assert args.info.exists()
     tools._check_overwrite_file(args.output, args.force)
 
+    with h5py.File(args.info) as file:
+        root = args.info.parent
+        files = [root / f for f in file["files"].asstr()[...]]
+
+    files = [f for f in files if f.exists()]
+    assert len(files) > 0
+
     # allocate statistics
-    for ifile, f in enumerate(tqdm.tqdm(args.files)):
+    for ifile, f in enumerate(tqdm.tqdm(files)):
         with h5py.File(f) as file:
             if ifile == 0:
                 L = np.max(file["param"]["shape"][...])
@@ -179,15 +186,15 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
     # collect statistics
     with h5py.File(args.output, "w") as output:
         tools.create_check_meta(output, tools.path_meta(myname, funcname), dev=args.develop)
-        with h5py.File(args.files[0]) as file:
+        with h5py.File(files[0]) as file:
             g5.copy(file, output, ["/param"])
 
-        output["/settings/files"] = sorted([f.name for f in args.files])
+        output["/settings/files"] = sorted([f.name for f in files])
         output["/settings/x0"] = x0_list
         if args.xc is not None:
             output["/settings/xc"] = args.xc
 
-        for ifile, f in enumerate(tqdm.tqdm(args.files)):
+        for ifile, f in enumerate(tqdm.tqdm(files)):
             with h5py.File(f) as file:
                 res = file[myname]["avalanches"]
                 for iava in range(res["xmin"].shape[0]):
