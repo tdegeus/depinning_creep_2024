@@ -32,7 +32,7 @@ def _upgrade_data(
     :param insert: ExtremalAvalanche to insert.
     :return: New file in temporary directory if the data is upgraded, ``None`` otherwise.
     """
-    temp_file = Thermal._upgrade_data(filename, temp_dir, m_name)
+    temp_file = Thermal._upgrade_data(filename, temp_dir, m_name, upgrade_meta=False)
 
     if temp_file is None:
         return None
@@ -69,7 +69,7 @@ def _upgrade_data(
         with g5.ExtendableList(group, "index_snapshot", dtype=np.int64, chunks=(16,)) as dset:
             dset[0] = index_snapshot
 
-    return temp_file
+    return Preparation._upgrade_metadata(temp_file, temp_dir)
 
 
 def UpgradeData(cli_args: list = None) -> None:

@@ -62,7 +62,7 @@ def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
         with g5.ExtendableList(dst["/AQS/snapshots"], "systemspanning", bool, chunks=(16,)) as dset:
             dset.append(np.ones(dst["/AQS/snapshots/step"].size, dtype=bool))
 
-    return temp_file
+    return Preparation._upgrade_metadata(temp_file, temp_dir)
 
 
 def UpgradeData(cli_args=None):

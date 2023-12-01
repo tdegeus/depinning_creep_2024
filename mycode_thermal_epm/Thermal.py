@@ -29,7 +29,7 @@ m_exclude = ["AQS", "Extremal", "Preparation", "Thermal"]
 
 
 def _upgrade_data(
-    filename: pathlib.Path, temp_dir: pathlib.Path, myname: str = m_name
+    filename: pathlib.Path, temp_dir: pathlib.Path, myname: str = m_name, upgrade_meta: bool = True
 ) -> pathlib.Path | None:
     """
     Upgrade data to the current version.
@@ -37,6 +37,7 @@ def _upgrade_data(
     :param filename: Input filename.
     :param temp_dir: Temporary directory in which any file may be created/overwritten.
     :param myname: Module name.
+    :param upgrade_meta: Upgrade metadata.
     :return: New file in temporary directory if the data is upgraded, ``None`` otherwise.
     """
     assert myname in ["Thermal", "Extremal"]
@@ -149,7 +150,10 @@ def _upgrade_data(
             src, dst, rename=rename, allow={"->": ["/restart", f"/{myname}/mean_epsp"]}
         )
 
-    return temp_file
+    if upgrade_meta:
+        return Preparation._upgrade_metadata(temp_file, temp_dir)
+    else:
+        return temp_file
 
 
 def UpgradeData(cli_args: list = None) -> None:

@@ -239,7 +239,7 @@ def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> pathlib.Pat
         dump_snapshot(0, dst.create_group(m_name).create_group("snapshots"), system)
         check_copy(src, dst, rename=[["/init", "/Preparation/snapshots"]], attrs=False)
 
-    return temp_file
+    return _upgrade_metadata(temp_file, temp_dir)
 
 
 def _upgrade_metadata(filename: pathlib.Path, temp_dir: pathlib.Path) -> pathlib.Path | None:
@@ -252,13 +252,14 @@ def _upgrade_metadata(filename: pathlib.Path, temp_dir: pathlib.Path) -> pathlib
 
     :param filename: Input filename.
     :param temp_dir: Temporary directory in which any file may be created/overwritten.
-    :return: New file in temporary directory if the data is upgraded, ``None`` otherwise.
+    :return: The old/new file name.
     """
     with h5py.File(filename) as src:
         if "meta" not in src:
             return filename
 
     temp_file = temp_dir / "new_meta.h5"
+    assert temp_file != filename
     with h5py.File(filename) as src, h5py.File(temp_file, "w") as dst:
         groups = [i for i in src]
         if "meta" in groups:
@@ -323,7 +324,31 @@ def UpgradeData(
 ) -> None:
     """
     Upgrade data to the current version.
+
+    .. note::
+
+        The following call is made:
+
+        -   If ``combine=False``::
+
+                temp_file = upgrade_function(filename, temp_dir)
+
+        -   If ``combine=True``::
+
+                temp_file = upgrade_function(filename, temp_dir, args.insert)
+
+        The return value ``temp_file`` is then handled as follows:
+
+        -   If ``ret is None``: The file is not upgraded.
+        -   Otherwise a backup is created, and the file is replaced by ``temp_file``.
+
+    :param cli_args: Command line arguments (all items are converted to string and then parsed).
+    :param myname: Name of the module.
+    :param upgrade_function: Function that upgrades the data.
+    :param combine: Combine two data-files.
     """
+
+    doc = "Upgrade data to the current version."
 
     class MyFmt(
         argparse.RawDescriptionHelpFormatter,
@@ -333,7 +358,6 @@ def UpgradeData(
         pass
 
     funcname = inspect.getframeinfo(inspect.currentframe()).function
-    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
 
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
@@ -368,8 +392,6 @@ def UpgradeData(
 
             if temp_file is None:
                 continue
-
-            temp_file = _upgrade_metadata(temp_file, temp_dir)
 
             with h5py.File(temp_file, "a") as file:
                 tools.create_check_meta(file, tools.path_meta(myname, funcname), dev=args.develop)
