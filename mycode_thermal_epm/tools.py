@@ -78,7 +78,7 @@ def create_check_meta(
         if sorted([i for i in meta[existing].attrs]) == ["compiler", "dependencies"]:
             a = sorted(meta[existing].attrs["compiler"]) == compiler
             b = sorted(meta[existing].attrs["dependencies"]) == deps
-            if a == b:
+            if a and b:
                 meta[path] = meta[existing]
                 return
 
