@@ -64,7 +64,7 @@ def create_check_meta(
     """
 
     deps = sorted(list(set(list(epm.version_dependencies()) + ["mycode_thermal_epm=" + version])))
-    compiler = epm.version_compiler()
+    compiler = sorted(epm.version_compiler())
 
     assert dev or not tag.any_has_uncommitted(deps)
 
@@ -75,11 +75,10 @@ def create_check_meta(
 
     groups = sorted([i for i in meta])[::-1]
     for existing in groups:
-        if sorted([i for i in meta[existing].attrs]) == ["dependencies", "compiler"]:
-            a = meta[existing].attrs["compiler"] == compiler
-            b = meta[existing].attrs["dependencies"] == deps
+        if sorted([i for i in meta[existing].attrs]) == ["compiler", "dependencies"]:
+            a = sorted(meta[existing].attrs["compiler"]) == compiler
+            b = sorted(meta[existing].attrs["dependencies"]) == deps
             if a == b:
-                print("linking", path, "to", existing)
                 meta[path] = meta[existing]
                 return
 
