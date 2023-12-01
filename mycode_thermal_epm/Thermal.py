@@ -325,9 +325,6 @@ def dump_avalanche(
 
     stop_column = start_column + avalanche.idx.size
 
-    with g5.ExtendableList(group, "S") as dset:
-        dset[index] = stop_column
-
     with g5.ExtendableSlice(group, "idx") as dset:
         dset[index, start_column:stop_column] = avalanche.idx
 
@@ -337,6 +334,9 @@ def dump_avalanche(
     else:
         with g5.ExtendableSlice(group, "xmin") as dset:
             dset[index, start_column:stop_column] = avalanche.x
+
+    with g5.ExtendableList(group, "S") as dset:
+        dset[index] = stop_column
 
 
 def Run(cli_args: list = None, myname: str = m_name) -> None:
