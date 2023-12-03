@@ -482,6 +482,7 @@ def Run(cli_args: list = None, myname: str = m_name) -> None:
                     if duration_snapshot.mean() > args.walltime - (time.time() - tic):
                         return
                     s += my_steps_system(n=ds, **my_steps_options)
+                    assert not np.isnan(system.t)
                     if time.time() - tic >= args.walltime:
                         return
                     dump_snapshot(i, grp_snap, system, s, method.index_avalanche)
@@ -493,6 +494,8 @@ def Run(cli_args: list = None, myname: str = m_name) -> None:
                     if s == 0:
                         new_avalanche(method.index_avalanche, grp_ava, system.t, i - 1)
                     my_steps_avalanche(system, n=ds, **my_steps_options)
+                    assert not np.isnan(system.t)
+                    assert not np.isnan(ava.t[0])
                     if time.time() - tic >= args.walltime:
                         return
                     dump_avalanche(method.index_avalanche, s, grp_ava, ava, myname)
