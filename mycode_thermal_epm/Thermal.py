@@ -949,8 +949,12 @@ class MySegmenterChord(MySegmenterBasic):
         label_offset = 0
         labels = []
         sizes = []
-        for row in rows:
-            srow = self.S[row, ...].copy()
+
+        rows = np.random.choice(np.arange(self.shape[0]), size=self.nchord, replace=False)
+        cols = np.random.choice(np.arange(self.shape[1]), size=self.nchord, replace=False)
+        indices = [(row, None) for row in rows] + [(None, col) for col in cols]
+        for row, col in indices:
+            srow = self.S[row, col].copy()
             lrow = eye.clusters(srow, periodic=True)
             keep = lrow > 0
             if np.sum(keep) == 0:
