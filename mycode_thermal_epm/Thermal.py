@@ -954,7 +954,7 @@ class MySegmenterChord(MySegmenterBasic):
         cols = np.random.choice(np.arange(self.shape[1]), size=self.nchord, replace=False)
         indices = [(row, None) for row in rows] + [(None, col) for col in cols]
         for row, col in indices:
-            srow = self.S[row, col].copy()
+            srow = np.copy(self.S[row, col].ravel())
             lrow = eye.clusters(srow, periodic=True)
             keep = lrow > 0
             if np.sum(keep) == 0:
