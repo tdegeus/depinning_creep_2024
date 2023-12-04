@@ -1005,6 +1005,12 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
     parser.add_argument(
         "--tau", type=float, nargs=3, default=[-5, 0, 51], help="logspace tau (units of tau_alpha)"
     )
+    parser.add_argument(
+        "--skip",
+        type=float,
+        default=2,
+        help="Consider independent measurement after t = `skip` tau_alpha",
+    )
     parser.add_argument("--bins", type=int, help="Number of bins P(S), P(A), P(ell)", default=60)
     parser.add_argument(
         "--means", type=int, default=4, help="Compute <S, A, ell>**(i + 1) for i in range(means)"
@@ -1014,33 +1020,37 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
     args = tools._parse(parser, cli_args)
     assert args.info.exists()
     tools._check_overwrite_file(args.output, args.force)
+    assert args.tau[1] < np.log10(args.skip)  # both in units of tau_alpha
 
+    # load basic data
     with h5py.File(args.info) as file:
         root = args.info.parent
         files = [root / f for f in file["files"].asstr()[...]]
         shape = file["param"]["shape"][...]
         tau_alpha = file["tau_alpha"][...]
-        t_measure = np.logspace(args.tau[0], args.tau[1], int(args.tau[2])) * tau_alpha
 
     files = [f for f in files if f.exists()]
     assert len(files) > 0
 
     # size estimate
     max_s = 0
-    interval = []
-    for f in files:
+    min_t = []
+    navalanches = 0
+    for ifile, f in enumerate(files):
         with h5py.File(f) as file:
             avalanches = file[myname]["avalanches"]
             max_s = max(max_s, avalanches["idx"].shape[1])
-            i = []
-            for iava in _index_avalanches(file[myname]):
-                i.append((avalanches["t"][iava, -1] - avalanches["t0"][iava]) / tau_alpha)
-            interval.append(i)
-    nevents = [[int(1 + np.floor(t / 2)) for t in i] for i in interval]
+            indices = _index_avalanches(file[myname])
+            navalanches += len(indices)
+            for iava in indices:
+                min_t.append(avalanches["t"][iava, 0] - avalanches["t0"][iava])
+    min_t = np.array(min_t) / tau_alpha
+
+    # time points to measure: correct for smallest times available, to avoid useless measurements
+    lwr = max(np.log10(np.median(min_t)), args.tau[0])
+    t_measure = np.logspace(lwr, args.tau[1], args.tau[2]) * tau_alpha  # physical units
 
     # allocate statistics
-    mean_t = [enstat.scalar() for _ in t_measure]
-
     if mymode in ["chord", "clusters"]:
         L = np.max(shape)
         N = np.prod(shape)
@@ -1062,7 +1072,9 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
         tools.create_check_meta(output, tools.path_meta(myname, funcname), dev=args.develop)
         output["/settings/files"] = sorted([f.name for f in files])
         output["/settings/tau"] = t_measure
+        output["/settings/tau"].attrs["units"] = "physical"
         output["/settings/tau_alpha"] = tau_alpha
+        output["/settings/tau_alpha"].attrs["units"] = "physical"
         with h5py.File(files[0]) as file:
             g5.copy(file, output, ["/param"])
 
@@ -1075,53 +1087,43 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
             mysegmenter = MySegmenterBasic(shape)
 
         # measure
-        pbar = tqdm.tqdm(total=np.sum([sum(i) for i in nevents]))
+        pbar = tqdm.tqdm(total=navalanches)
         for ifile, f in enumerate(files):
             with h5py.File(f) as file:
                 avalanches = file[myname]["avalanches"]
-                for iava in _index_avalanches(file[myname]):
-                    t = avalanches["t"][iava, ...] - avalanches["t0"][iava]
-                    idx = avalanches["idx"][iava, ...].astype(int)
+                indices = _index_avalanches(file[myname])
+                for iava in indices:
+                    pbar.n += 1
+                    pbar.set_description(f"{f.name}({iava})")
+                    pbar.refresh()
 
-                    for ievent in range(sys.maxsize):
-                        if t[-1] <= t_measure[-1]:
+                    t_load = avalanches["t"][iava, ...] - avalanches["t0"][iava]
+                    idx_load = avalanches["idx"][iava, ...].astype(int)
+                    t_split = []
+                    idx_split = []
+                    while True:
+                        i = np.argmax(t_load > args.skip * tau_alpha)
+                        if i == 0:
                             break
+                        if t_load[i - 1] < t_measure[-1]:  # can be omitted
+                            break
+                        t_split.append(np.copy(t_load[:i]))
+                        idx_split.append(np.copy(idx_load[:i]))
+                        t_load = t_load[i:] - t_load[i - 1]
+                        idx_load = idx_load[i:]
 
-                        pbar.n += 1
-                        pbar.set_description(f"{f.name}({iava}-{ievent})")
-                        pbar.refresh()
+                    for t, idx in zip(t_split, idx_split):
                         mysegmenter.reset()
-
                         for i0, t0 in enumerate(t_measure):
                             i = np.argmax(t > t0)
-                            if i == 0:
-                                continue
-
-                            mean_t[i0] += t[:i]
-                            args = mysegmenter.add_points(idx[:i])
+                            if i > 0:
+                                ret = mysegmenter.add_points(idx[:i])
+                                idx = np.copy(idx[i:])
+                                t = np.copy(t[i:])
+                                if mymode != "structure":
+                                    measurement.add_sample(i0, *ret)
                             if mymode == "structure":
                                 structure[i0] += mysegmenter.S
-                            else:
-                                measurement.add_sample(i0, *args)
-
-                            idx = idx[i:]
-                            t = t[i:]
-
-                        # jump the next measurement
-                        if t[-1] <= 2 * tau_alpha:
-                            break
-                        i = np.argmax(t > 2 * tau_alpha)
-                        t = t[i:] - t[i]
-                        idx = idx[i:]
-
-            for name, value in zip(["tau"], [mean_t]):
-                value = [dict(i0) for i0 in value]
-                for key in ["first", "second", "norm"]:
-                    storage.dump_overwrite(
-                        output,
-                        f"/data/{name}/{key}",
-                        np.array([float(i0[key]) for i0 in value], dtype=np.float64),
-                    )
 
             if mymode == "structure":
                 for name, value in zip(["structure"], [structure]):
