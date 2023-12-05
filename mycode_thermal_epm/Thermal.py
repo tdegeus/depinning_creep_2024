@@ -915,6 +915,12 @@ class MySegmenterClusters(MySegmenterBasic):
     def __init__(self, shape):
         super().__init__(shape)
         self.segmenter = eye.ClusterLabeller(shape=shape, periodic=True)
+        self.s = np.array([], dtype=int)
+        self.a = np.array([], dtype=int)
+        self.ell = np.array([], dtype=float)
+
+    def avalanches(self):
+        return dict(S=self.s, A=self.a, ell=self.ell)
 
     def reset(self):
         super().reset()
@@ -928,16 +934,20 @@ class MySegmenterClusters(MySegmenterBasic):
         labels = self.segmenter.labels.astype(int).ravel()
         keep = labels > 0
         labels = labels[keep]
-        a = np.bincount(labels)[1:]
-        s = np.bincount(labels, weights=self.S.ravel()[keep]).astype(int)[1:]
-        ell = Preparation.convert_A_to_ell(a, len(self.shape))
-        return s, ell, a
+        self.a = np.bincount(labels)[1:]
+        self.s = np.bincount(labels, weights=self.S.ravel()[keep]).astype(int)[1:]
+        self.ell = Preparation.convert_A_to_ell(self.a, len(self.shape))
 
 
 class MySegmenterChord(MySegmenterBasic):
     def __init__(self, shape):
         super().__init__(shape)
         self.nchord = max(int(0.1 * np.min(shape)), 1)
+        self.s = np.array([], dtype=int)
+        self.ell = np.array([], dtype=int)
+
+    def avalanches(self):
+        return dict(S=self.s, ell=self.ell)
 
     def reset(self):
         super().reset()
@@ -966,12 +976,11 @@ class MySegmenterChord(MySegmenterBasic):
             sizes += list(srow.astype(int))
 
         if len(labels) == 0:
-            return np.array([], dtype=int), np.array([], dtype=int)
+            return
 
         labels = eye.labels_prune(labels)
-        ell = np.bincount(labels)[1:]
-        s = np.bincount(labels, weights=sizes).astype(int)[1:]
-        return s, ell
+        self.ell = np.bincount(labels)[1:]
+        self.s = np.bincount(labels, weights=sizes).astype(int)[1:]
 
 
 def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, doc) -> None:
@@ -1117,13 +1126,13 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
                         for i0, t0 in enumerate(t_measure):
                             i = np.argmax(t > t0)
                             if i > 0:
-                                ret = mysegmenter.add_points(idx[:i])
+                                mysegmenter.add_points(idx[:i])
                                 idx = np.copy(idx[i:])
                                 t = np.copy(t[i:])
-                                if mymode != "structure":
-                                    measurement.add_sample(i0, *ret)
                             if mymode == "structure":
                                 structure[i0] += mysegmenter.S
+                            else:
+                                measurement.add_sample(i0, **mysegmenter.avalanches())
 
             if mymode == "structure":
                 for name, value in zip(["structure"], [structure]):
