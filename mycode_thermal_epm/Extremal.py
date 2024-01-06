@@ -151,6 +151,7 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
             if ifile == 0:
                 L = np.max(file["param"]["shape"][...])
                 N = np.prod(file["param"]["shape"][...])
+                alpha = file["param"]["alpha"][...]
                 smax = 0
                 xmin = np.inf
                 xmax = -np.inf
@@ -172,6 +173,14 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
         x0_list = np.sort(np.concatenate(([args.xc], x0_list)))
         xc_xmin_hist = enstat.histogram(
             bin_edges=enstat.histogram.from_data([1e-6, 1e0], mode="log", bins=500).bin_edges,
+            bound_error="ignore",
+        )
+        if np.isclose(alpha, 1.5):
+            limit = [1e-9, 1e0]
+        else:
+            limit = [(1e-6) ** alpha, 1e0]
+        Ec_Emin_hist = enstat.histogram(
+            bin_edges=enstat.histogram.from_data(limit, mode="log", bins=500).bin_edges,
             bound_error="ignore",
         )
 
@@ -208,6 +217,7 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
                     xmin_hist += xmin
                     if args.xc is not None:
                         xc_xmin_hist += args.xc - xmin
+                        Ec_Emin_hist += args.xc**alpha - (np.abs(xmin) ** alpha * np.sign(xmin))
 
                     for i0, x0 in enumerate(tqdm.tqdm(x0_list)):
                         S, A, _ = epm.segment_avalanche(x0 >= xmin, idx, first=False, last=False)
@@ -219,6 +229,8 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
             if args.xc is not None:
                 names.append("xc_xmin_hist")
                 values.append(xc_xmin_hist)
+                names.append("Ec_Emin_hist")
+                values.append(Ec_Emin_hist)
 
             for name, value in zip(names, values):
                 value = dict(value)
