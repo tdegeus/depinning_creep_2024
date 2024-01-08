@@ -1039,6 +1039,9 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
         default=f"EnsembleAvalanches_{mymode}.h5",
     )
     parser.add_argument(
+        "--xc", type=float, help=r"Gap in P(x) -> \tau_\alpha = \exp(x_c^\alpha / T)"
+    )
+    parser.add_argument(
         "--tau", type=float, nargs=3, default=[-5, 0, 51], help="logspace tau (units of tau_alpha)"
     )
     parser.add_argument(
@@ -1063,7 +1066,9 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
         root = args.info.parent
         files = [root / f for f in file["files"].asstr()[...]]
         shape = file["param"]["shape"][...]
-        tau_alpha = file["tau_alpha"][...]
+        alpha = file["param"]["alpha"][...]
+        temperature = file["param"]["temperature"][...]
+        tau_alpha = np.exp(args.xc**alpha / temperature)
 
     files = [f for f in files if f.exists()]
     assert len(files) > 0
@@ -1109,6 +1114,7 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
         output["/settings/files"] = sorted([f.name for f in files])
         output["/settings/tau"] = t_measure
         output["/settings/tau"].attrs["units"] = "physical"
+        output["/settings/xc"] = args.xc
         output["/settings/tau_alpha"] = tau_alpha
         output["/settings/tau_alpha"].attrs["units"] = "physical"
         with h5py.File(files[0]) as file:
