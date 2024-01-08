@@ -793,8 +793,6 @@ class MeasureAvalanches:
         n_moments: int,
     ):
         self.line = False
-        self.measured = False
-
         self.n_moments = n_moments
 
         self.S_hist = [enstat.histogram(bin_edges=S_bin_edges) for _ in range(n)]
@@ -818,12 +816,12 @@ class MeasureAvalanches:
         assert np.issubdtype(A.dtype, np.integer)
         assert not np.issubdtype(ell.dtype, np.integer)
 
-        self.measured = True
+        if len(S) == 0:
+            return
 
         self.S_hist[index] += S
         self.A_hist[index] += A
         self.ell_hist[index] += ell
-
         self.A_fractal[index].add_sample(A, S)
         self.ell_fractal[index].add_sample(ell, S)
 
@@ -839,13 +837,13 @@ class MeasureAvalanches:
     def add_sample_1d(self, index: int, S: np.array, ell: np.array):
         assert np.issubdtype(S.dtype, np.integer)
         assert np.issubdtype(ell.dtype, np.integer)
-
-        self.measured = True
         self.line = True
+
+        if len(S) == 0:
+            return
 
         self.S_hist[index] += S
         self.ell_hist[index] += ell
-
         self.ell_fractal[index].add_sample(ell, S)
 
         # to avoid overflow
@@ -899,22 +897,39 @@ class MeasureAvalanches:
 
 
 class MySegmenterBasic:
+    """
+    Add points to the system and measure avalanches.
+    The base class only measures :py:attr:`S`, the amount of times each block has failed.
+    """
+
     def __init__(self, shape):
         self.shape = shape
         self.N = np.prod(shape)
         self.S = np.zeros(shape, dtype=int)
 
     def reset(self):
+        """
+        Reset to initial state: a completely flat interface.
+        """
         self.S *= 0
 
     def add_points(self, idx):
+        if len(idx) == 0:
+            return
         self.S += np.bincount(idx, minlength=self.N).reshape(self.shape)
 
 
 class MySegmenterClusters(MySegmenterBasic):
+    """
+    Spatially segment avalanches identifying connected clusters.
+    """
+
     def __init__(self, shape):
         super().__init__(shape)
         self.segmenter = eye.ClusterLabeller(shape=shape, periodic=True)
+        self._init_empty()
+
+    def _init_empty(self):
         self.s = np.array([], dtype=int)
         self.a = np.array([], dtype=int)
         self.ell = np.array([], dtype=float)
@@ -928,11 +943,15 @@ class MySegmenterClusters(MySegmenterBasic):
 
     def add_points(self, idx):
         super().add_points(idx)
+        if np.sum(self.S) == 0:
+            self._init_empty()
+            return
+
         self.segmenter.add_points(np.copy(idx))
         self.segmenter.prune()
-
         labels = self.segmenter.labels.astype(int).ravel()
         keep = labels > 0
+        assert np.sum(keep) > 0
         labels = labels[keep]
         self.a = np.bincount(labels)[1:]
         self.s = np.bincount(labels, weights=self.S.ravel()[keep]).astype(int)[1:]
@@ -943,6 +962,9 @@ class MySegmenterChord(MySegmenterBasic):
     def __init__(self, shape):
         super().__init__(shape)
         self.nchord = max(int(0.1 * np.min(shape)), 1)
+        self._init_empty()
+
+    def _init_empty(self):
         self.s = np.array([], dtype=int)
         self.ell = np.array([], dtype=int)
 
@@ -954,6 +976,9 @@ class MySegmenterChord(MySegmenterBasic):
 
     def add_points(self, idx):
         super().add_points(idx)
+        if np.sum(self.S) == 0:
+            self._init_empty()
+            return
 
         rows = np.random.choice(np.arange(self.shape[0]), size=self.nchord, replace=False)
         label_offset = 0
@@ -975,7 +1000,9 @@ class MySegmenterChord(MySegmenterBasic):
             labels += list(lrow.astype(int))
             sizes += list(srow.astype(int))
 
+        # may happen if all chords are outside events
         if len(labels) == 0:
+            self._init_empty()
             return
 
         labels = eye.labels_prune(labels)
@@ -1129,6 +1156,9 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
                                 mysegmenter.add_points(idx[:i])
                                 idx = np.copy(idx[i:])
                                 t = np.copy(t[i:])
+                            else:
+                                mysegmenter.add_points([])
+
                             if mymode == "structure":
                                 structure[i0] += mysegmenter.S
                             else:
