@@ -1073,6 +1073,20 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
     files = [f for f in files if f.exists()]
     assert len(files) > 0
 
+    # skip corrupted data
+    keep_files = []
+    for f in files:
+        with h5py.File(f) as file:
+            avalanches = file[myname]["avalanches"]
+            indices = _index_avalanches(file[myname])
+            select = True
+            for iava in indices:
+                if np.isclose(avalanches["t"][iava, 0], 0):
+                    select = False
+            if select:
+                keep_files.append(f)
+    files = [f for f in keep_files]
+
     # size estimate
     max_s = 0
     min_t = []
