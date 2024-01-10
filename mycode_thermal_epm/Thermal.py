@@ -1039,7 +1039,7 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
         default=f"EnsembleAvalanches_{mymode}.h5",
     )
     parser.add_argument(
-        "--xc", type=float, help=r"Gap in P(x) -> \tau_\alpha = \exp(x_c^\alpha / T)"
+        "--xc", type=float, required=True, help=r"Gap in P(x) -> \tau_\alpha = \exp(x_c^\alpha / T)"
     )
     parser.add_argument(
         "--tau", type=float, nargs=3, default=[-5, 0, 51], help="logspace tau (units of tau_alpha)"
@@ -1073,37 +1073,17 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
     files = [f for f in files if f.exists()]
     assert len(files) > 0
 
-    # skip corrupted data
-    keep_files = []
-    for f in files:
-        with h5py.File(f) as file:
-            avalanches = file[myname]["avalanches"]
-            indices = _index_avalanches(file[myname])
-            select = True
-            for iava in indices:
-                if np.isclose(avalanches["t"][iava, 0], 0):
-                    select = False
-            if select:
-                keep_files.append(f)
-    files = [f for f in keep_files]
-
     # size estimate
     max_s = 0
-    min_t = []
     navalanches = 0
     for ifile, f in enumerate(files):
         with h5py.File(f) as file:
             avalanches = file[myname]["avalanches"]
             max_s = max(max_s, avalanches["idx"].shape[1])
-            indices = _index_avalanches(file[myname])
-            navalanches += len(indices)
-            for iava in indices:
-                min_t.append(avalanches["t"][iava, 0] - avalanches["t0"][iava])
-    min_t = np.array(min_t) / tau_alpha
+            navalanches += len(_index_avalanches(file[myname]))
 
     # time points to measure: correct for smallest times available, to avoid useless measurements
-    lwr = max(np.log10(np.median(min_t)), args.tau[0])
-    t_measure = np.logspace(lwr, args.tau[1], args.tau[2]) * tau_alpha  # physical units
+    t_measure = np.logspace(args.tau[0], args.tau[1], args.tau[2])  # units of tau_alpha
 
     # allocate statistics
     if mymode in ["chord", "clusters"]:
@@ -1126,7 +1106,7 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
     with h5py.File(args.output, "w") as output:
         tools.create_check_meta(output, tools.path_meta(myname, funcname), dev=args.develop)
         output["/settings/files"] = sorted([f.name for f in files])
-        output["/settings/tau"] = t_measure
+        output["/settings/tau"] = t_measure * tau_alpha
         output["/settings/tau"].attrs["units"] = "physical"
         output["/settings/xc"] = args.xc
         output["/settings/tau_alpha"] = tau_alpha
@@ -1144,7 +1124,7 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
 
         # measure
         pbar = tqdm.tqdm(total=navalanches)
-        for ifile, f in enumerate(files):
+        for f in tqdm.tqdm(files):
             with h5py.File(f) as file:
                 avalanches = file[myname]["avalanches"]
                 indices = _index_avalanches(file[myname])
@@ -1153,21 +1133,35 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
                     pbar.set_description(f"{f.name}({iava})")
                     pbar.refresh()
 
-                    t_load = avalanches["t"][iava, ...] - avalanches["t0"][iava]
+                    # extract sequence of failures
+                    # (normalisation of time to avoid overflow)
+                    t0 = avalanches["t0"][iava] / tau_alpha
+                    t_load = avalanches["t"][iava, ...] / tau_alpha - t0
                     idx_load = avalanches["idx"][iava, ...].astype(int)
+
+                    # throw away / ignore incomplete data
+                    i = np.argmax(t_load < 0)
+                    if i > 0:
+                        if i < t_load.size / 2:
+                            continue
+                        t_load = t_load[:i]
+                        idx_load = idx_load[:i]
+
+                    # split data into independent measurements
                     t_split = []
                     idx_split = []
                     while True:
-                        i = np.argmax(t_load > args.skip * tau_alpha)
+                        i = np.argmax(t_load > args.skip)
                         if i == 0:
-                            break
-                        if t_load[i - 1] < t_measure[-1]:  # can be omitted
+                            t_split.append(np.copy(t_load))
+                            idx_split.append(np.copy(idx_load))
                             break
                         t_split.append(np.copy(t_load[:i]))
                         idx_split.append(np.copy(idx_load[:i]))
                         t_load = t_load[i:] - t_load[i - 1]
                         idx_load = idx_load[i:]
 
+                    # measure avalanches
                     for t, idx in zip(t_split, idx_split):
                         mysegmenter.reset()
                         for i0, t0 in enumerate(t_measure):
