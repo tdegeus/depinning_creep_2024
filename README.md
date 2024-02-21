@@ -1,2 +1,2 @@
-# mycode_thermal_epm
+# depinning_creep_2024
 Measure thermal avalanches

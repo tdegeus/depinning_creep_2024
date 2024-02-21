@@ -5,8 +5,8 @@ import tempfile
 
 import pytest
 
-from mycode_thermal_epm import Extremal
-from mycode_thermal_epm import Preparation
+from depinning_creep_2024 import Extremal
+from depinning_creep_2024 import Preparation
 
 
 @pytest.fixture(scope="module")
