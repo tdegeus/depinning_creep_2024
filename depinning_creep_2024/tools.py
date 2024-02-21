@@ -31,7 +31,13 @@ def read_version(file: h5py.File, path: str) -> str:
         return None
 
     ret = file[path].attrs["dependencies"]
-    return [i for i in ret if i.startswith("mycode_thermal_epm")][0].split("=")[1]
+    ver = [i for i in ret if i.startswith("depinning_creep_2024")]
+
+    if len(ver) == 0:
+        ver = [i for i in ret if i.startswith("mycode_thermal_epm=")]
+        assert len(ver) == 1
+
+    return ver[0].split("=")[1]
 
 
 def path_meta(module: str, function: str) -> str:
@@ -63,7 +69,7 @@ def create_check_meta(
     :param dev: Allow uncommitted changes.
     """
 
-    deps = sorted(list(set(list(epm.version_dependencies()) + ["mycode_thermal_epm=" + version])))
+    deps = sorted(list(set(list(epm.version_dependencies()) + ["depinning_creep_2024=" + version])))
     compiler = sorted(epm.version_compiler())
 
     assert dev or not tag.any_has_uncommitted(deps)

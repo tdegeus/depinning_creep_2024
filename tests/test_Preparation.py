@@ -1,4 +1,4 @@
-from mycode_thermal_epm import Preparation
+from depinning_creep_2024 import Preparation
 
 
 def test_basic(tmp_path):

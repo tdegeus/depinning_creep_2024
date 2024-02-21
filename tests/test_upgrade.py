@@ -9,10 +9,10 @@ import numpy as np
 import pytest
 import shelephant
 
-from mycode_thermal_epm import AQS
-from mycode_thermal_epm import Extremal
-from mycode_thermal_epm import Preparation
-from mycode_thermal_epm import Thermal
+from depinning_creep_2024 import AQS
+from depinning_creep_2024 import Extremal
+from depinning_creep_2024 import Preparation
+from depinning_creep_2024 import Thermal
 
 
 @pytest.fixture(scope="module")
