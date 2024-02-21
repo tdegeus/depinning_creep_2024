@@ -1,80 +1,77 @@
 import os
 import pathlib
-import shutil
-import sys
+import tempfile
 import time
-import unittest
-from functools import partialmethod
 
 import h5py
 import numpy as np
+import pytest
 import shelephant
-from tqdm import tqdm
 
-tqdm.__init__ = partialmethod(tqdm.__init__, disable=True)
-
-root = pathlib.Path(__file__).parent.parent.absolute()
-if (root / "mycode_thermal_epm" / "_version.py").exists():
-    sys.path.insert(0, str(root))
-
-from mycode_thermal_epm import AQS  # noqa: E402
-from mycode_thermal_epm import Preparation  # noqa: E402
+from mycode_thermal_epm import AQS
+from mycode_thermal_epm import Preparation
 
 
-class MyTests(unittest.TestCase):
-    """ """
+@pytest.fixture(scope="module")
+def mydata():
+    """
+    *   Generate a temporary directory and change working directory to it.
+    *   Generate a prepared realization in "Preparation".
+    *   If all tests are finished: change working directory back and remove temporary directory.
+    """
+    origin = pathlib.Path().absolute()
+    tmpDir = tempfile.TemporaryDirectory()
+    tmp_dir = pathlib.Path(tmpDir.name)
+    os.chdir(tmp_dir)
 
-    @classmethod
-    def setUpClass(self):
-        myfile = pathlib.Path(__file__)
-        path = myfile.parent / myfile.name.replace(".py", "").replace("test_", "output_")
-        if path.is_dir():
-            shutil.rmtree(path)
-        path.mkdir(parents=True, exist_ok=True)
-        self.workdir = path
-        self.origin = pathlib.Path().absolute()
-        os.chdir(path)
+    Preparation.Generate(["--dev", "-n", 1, "--shape", 10, 10, "--dynamics", "default", "."])
+    assert pathlib.Path("id=0000.h5").exists()
 
-        Preparation.Generate(["--dev", "-n", 1, "--shape", 10, 10, "--dynamics", "default", "."])
+    yield {"workdir": tmp_dir}
 
-    @classmethod
-    def tearDownClass(self):
-        os.chdir(self.origin)
+    os.chdir(origin)
+    tmpDir.cleanup()
 
-    def test_basic(self):
-        AQS.BranchPreparation(["--dev", "id=0000.h5", "sim.h5"])
+
+def test_basic(mydata):
+    """
+    Run workflow, not a unit test.
+    """
+    AQS.BranchPreparation(["--dev", "id=0000.h5", "sim.h5"])
+    AQS.Run(["--dev", "-n", 200, "sim.h5"])
+    AQS.EnsembleInfo(["--dev", "sim.h5"])
+
+
+def test_restart(mydata):
+    """
+    Test that the simulation can be correctly restarted if it is interrupted.
+    """
+    with shelephant.path.tempdir():
+        AQS.BranchPreparation(["--dev", mydata["workdir"] / "id=0000.h5", "sim.h5"])
+        AQS.BranchPreparation(["--dev", mydata["workdir"] / "id=0000.h5", "res.h5"])
+
+        # run simulation without interruption, log the time that it took
+        tic = time.time()
         AQS.Run(["--dev", "-n", 200, "sim.h5"])
-        AQS.EnsembleInfo(["--dev", "sim.h5"])
+        dt = time.time() - tic
 
-    def test_restart(self):
-        with shelephant.path.tempdir():
-            AQS.BranchPreparation(["--dev", self.workdir / "id=0000.h5", "sim.h5"])
-            AQS.BranchPreparation(["--dev", self.workdir / "id=0000.h5", "res.h5"])
-            tic = time.time()
-            AQS.Run(["--dev", "-n", 200, "sim.h5"])
-            dt = time.time() - tic
+        # run identical simulation from the start, but interrupt it several times
+        while True:
+            AQS.Run(["--dev", "-n", 200, "res.h5", "--walltime", 0.2 * dt, "--buffer", 0.1 * dt])
+            with h5py.File("res.h5") as file:
+                if file["AQS"]["data"]["S"].size >= 200:
+                    break
 
-            while True:
-                AQS.Run(
-                    ["--dev", "-n", 200, "res.h5", "--walltime", 0.2 * dt, "--buffer", 0.1 * dt]
-                )
-                with h5py.File("res.h5") as file:
-                    if file["AQS"]["data"]["S"].size >= 200:
-                        break
+        # check that both runs are identical
+        with h5py.File("sim.h5") as a, h5py.File("res.h5") as b:
+            aa = a["AQS"]["data"]
+            bb = b["AQS"]["data"]
+            for key in ["uframe", "sigma", "S", "A", "T"]:
+                assert np.allclose(aa[key][...], bb[key][...])
 
-            with h5py.File("sim.h5") as a, h5py.File("res.h5") as b:
-                aa = a["AQS"]["data"]
-                bb = b["AQS"]["data"]
-                for key in ["uframe", "sigma", "S", "A", "T"]:
-                    self.assertTrue(np.allclose(aa[key][...], bb[key][...]))
-
-                aa = a["AQS"]["snapshots"]
-                bb = b["AQS"]["snapshots"]
-                asel = np.argwhere(aa["systemspanning"]).ravel()
-                bsel = np.argwhere(bb["systemspanning"]).ravel()
-                for key in ["epsp", "sigma", "sigmay", "uframe", "state", "step"]:
-                    self.assertTrue(np.allclose(aa[key][asel, ...], bb[key][bsel, ...]))
-
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
+            aa = a["AQS"]["snapshots"]
+            bb = b["AQS"]["snapshots"]
+            asel = np.argwhere(aa["systemspanning"]).ravel()
+            bsel = np.argwhere(bb["systemspanning"]).ravel()
+            for key in ["epsp", "sigma", "sigmay", "uframe", "state", "step"]:
+                assert np.allclose(aa[key][asel, ...], bb[key][bsel, ...])

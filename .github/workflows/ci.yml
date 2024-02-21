@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+
+  standard:
+
+    strategy:
+      fail-fast: false
+      matrix:
+        runs-on: [ubuntu-latest]
+
+    defaults:
+      run:
+        shell: bash -l {0}
+
+    name: ${{ matrix.runs-on }}
+    runs-on: ${{ matrix.runs-on }}
+
+    steps:
+
+    - name: Clone this library
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: Create conda environment
+      uses: mamba-org/setup-micromamba@main
+      with:
+        environment-file: environment.yaml
+        environment-name: myenv
+        init-shell: bash
+        cache-downloads: true
+
+    - name: Export version of this library
+      run: |
+        LATEST_TAG=$(git describe --tags `git rev-list --tags --max-count=1`)
+        echo "SETUPTOOLS_SCM_PRETEND_VERSION=$LATEST_TAG" >> $GITHUB_ENV
+
+    - name: Install library
+      run: python -m pip install . -v --no-build-isolation --no-deps
+
+    - name: Run tests
+      run: pytest
