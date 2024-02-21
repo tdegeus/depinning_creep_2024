@@ -14,8 +14,10 @@ dependencies:
 - parallel
 - pdfcombine
 - pre-commit
+- pytest
 - python >=3.10
 - python-cppcolormap
+- python-gooseepm >=0.10.0
 - python-gooseeye >=0.8.0
 - setuptools_scm
 - shelephant
