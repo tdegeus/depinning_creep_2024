@@ -1,6 +1,7 @@
 """
 h5py 'extensions'.
 """
+
 from typing import TypeVar
 
 import h5py
