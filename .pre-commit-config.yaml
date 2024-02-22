@@ -30,7 +30,7 @@ repos:
   - id: black
     args: [--safe, --quiet, --line-length=100]
 - repo: https://github.com/PyCQA/autoflake
-  rev: v2.2.1
+  rev: v2.3.0
   hooks:
   - id: autoflake
     args: [--in-place, --remove-unused-variable]
@@ -41,7 +41,7 @@ repos:
     name: isort
     args: ["--force-single-line", "--line-length=100", "--profile=black"]
 - repo: https://github.com/asottile/pyupgrade
-  rev: v3.15.0
+  rev: v3.15.1
   hooks:
   - id: pyupgrade
     args: [--py36-plus]
@@ -55,7 +55,7 @@ repos:
   hooks:
   - id: setup-cfg-fmt
 - repo: https://github.com/tdegeus/conda_envfile
-  rev: v0.5.0
+  rev: v0.5.1
   hooks:
   - id: conda_envfile_parse
     files: environment.yaml
