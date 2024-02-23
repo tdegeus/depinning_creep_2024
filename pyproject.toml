@@ -5,13 +5,13 @@ requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
 authors = [{name = "Tom de Geus", email = "tom@geus.me"}]
 classifiers = ["License :: OSI Approved :: MIT License"]
 dependencies = [
-  "enstat >=0.9.6",
-  "GooseEYE >=0.8.0",
-  "GooseEPM >=0.10.0",
-  "GooseHDF5 >=0.26.1",
-  "h5py",
-  "numpy",
-  "tqdm"
+    "enstat >=0.9.6",
+    "GooseEPM >=0.10.0",
+    "GooseEYE >=0.8.0",
+    "GooseHDF5 >=0.26.1",
+    "h5py",
+    "numpy",
+    "tqdm",
 ]
 description = "Simple dataset management"
 dynamic = ["version"]

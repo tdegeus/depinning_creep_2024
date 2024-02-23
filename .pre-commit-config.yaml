@@ -1,4 +1,10 @@
 repos:
+- repo: https://github.com/tdegeus/conda_envfile
+  rev: v0.5.2
+  hooks:
+  - id: conda_envfile_pyproject
+    files: environment.yaml
+    args: [--format]
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: v4.5.0
   hooks:
@@ -13,7 +19,7 @@ repos:
   - id: pretty-format-yaml
     args: [--preserve-quotes, --autofix, --indent, '2']
   - id: pretty-format-toml
-    args: [--autofix]
+    args: [--autofix, --indent, '4', --trailing-commas]
 - repo: https://github.com/pre-commit/pygrep-hooks
   rev: v1.10.0
   hooks:
@@ -54,10 +60,3 @@ repos:
   rev: v2.5.0
   hooks:
   - id: setup-cfg-fmt
-- repo: https://github.com/tdegeus/conda_envfile
-  rev: v0.5.1
-  hooks:
-  - id: conda_envfile_parse
-    files: environment.yaml
-  - id: conda_envfile_pyproject
-    files: environment.yaml
