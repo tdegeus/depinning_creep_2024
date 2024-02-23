@@ -18,6 +18,7 @@ from . import tag
 from . import tools
 from ._version import version
 from .Preparation import data_version
+from .tools import MyFmt
 
 f_info = "EnsembleInfo.h5"
 m_name = "AQS"
@@ -120,14 +121,6 @@ def BranchPreparation(cli_args=None):
     r"""
     Branch from prepared stress state and add parameters.
     """
-
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
-
     funcname = inspect.getframeinfo(inspect.currentframe()).function
     doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
@@ -185,13 +178,6 @@ def Run(cli_args=None):
     """
     tic = time.time()
     ticb = time.time()
-
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
 
     funcname = inspect.getframeinfo(inspect.currentframe()).function
     doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
@@ -328,13 +314,6 @@ def EnsembleInfo(cli_args=None):
     Basic interpretation of the ensemble.
     """
 
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
-
     funcname = inspect.getframeinfo(inspect.currentframe()).function
     doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
@@ -411,13 +390,6 @@ def Plot(cli_args=None):
     import matplotlib.pyplot as plt  # noqa: F401
 
     plt.style.use(["goose", "goose-latex", "goose-autolayout"])
-
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
 
     funcname = inspect.getframeinfo(inspect.currentframe()).function
     doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))

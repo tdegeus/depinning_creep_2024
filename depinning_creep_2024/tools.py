@@ -11,6 +11,14 @@ from . import tag
 from ._version import version
 
 
+class MyFmt(
+    argparse.RawDescriptionHelpFormatter,
+    argparse.ArgumentDefaultsHelpFormatter,
+    argparse.MetavarTypeHelpFormatter,
+):
+    pass
+
+
 def _parse(parser: argparse.ArgumentParser, cli_args: list[str]) -> argparse.ArgumentParser:
     if cli_args is None:
         return parser.parse_args(sys.argv[1:])

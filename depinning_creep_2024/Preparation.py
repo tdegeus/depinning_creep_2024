@@ -24,6 +24,7 @@ from . import storage
 from . import tag
 from . import tools
 from ._version import version
+from .tools import MyFmt
 
 data_version = "3.0"
 m_name = "Preparation"
@@ -350,13 +351,6 @@ def UpgradeData(
 
     doc = "Upgrade data to the current version."
 
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
-
     funcname = inspect.getframeinfo(inspect.currentframe()).function
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
 
@@ -407,13 +401,6 @@ def VerifyData(cli_args: list = None) -> None:
     Check that the data is of the correct version.
     Filenames of incorrect files are printed to stdout.
     """
-
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
 
     funcname = inspect.getframeinfo(inspect.currentframe()).function
     doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
@@ -492,13 +479,6 @@ def Generate(cli_args: list = None) -> None:
     Generate IO files, and compute and write initial states.
     In addition, write common simulation files.
     """
-
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
 
     funcname = inspect.getframeinfo(inspect.currentframe()).function
     doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))

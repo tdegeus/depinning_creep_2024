@@ -21,6 +21,7 @@ from . import tag
 from . import tools
 from ._version import version
 from .Preparation import data_version
+from .tools import MyFmt
 
 f_info = "EnsembleInfo.h5"
 f_structure = "EnsembleStructure.h5"
@@ -187,13 +188,6 @@ def BranchPreparation(cli_args: list = None, myname: str = m_name) -> None:
     Branch from prepared stress state and add parameters.
     """
 
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
-
     funcname = inspect.getframeinfo(inspect.currentframe()).function
     doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
@@ -357,13 +351,6 @@ def Run(cli_args: list = None, myname: str = m_name) -> None:
     3.  Repeat from 1.
     """
     tic = time.time()
-
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
 
     funcname = inspect.getframeinfo(inspect.currentframe()).function
     doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
@@ -536,13 +523,6 @@ def EnsembleInfo(cli_args: list = None, myname: str = m_name) -> None:
     Basic interpretation of the ensemble.
     """
 
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
-
     funcname = inspect.getframeinfo(inspect.currentframe()).function
     doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
@@ -672,13 +652,6 @@ def EnsembleStructure(cli_args: list = None, myname: str = m_name):
     https://doi.org/10.1103/PhysRevLett.118.147208
     """
 
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
-
     funcname = inspect.getframeinfo(inspect.currentframe()).function
     doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
@@ -734,13 +707,6 @@ def Plot(cli_args: list = None, myname: str = m_name) -> None:
     import matplotlib.pyplot as plt  # noqa: F401
 
     plt.style.use(["goose", "goose-latex", "goose-autolayout"])
-
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
 
     funcname = inspect.getframeinfo(inspect.currentframe()).function
     doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
@@ -1018,13 +984,6 @@ def EnsembleAvalanches_base(cli_args: list, myname: str, mymode: str, funcname, 
 
         This function assumes separately stored "avalanches" sequences as independent.
     """
-
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
 
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
 

@@ -16,6 +16,7 @@ from . import Thermal
 from . import storage
 from . import tools
 from ._version import version
+from .tools import MyFmt
 
 m_name = "Extremal"
 m_exclude = ["AQS", "ExtremalAvalanche", "Thermal"]
@@ -104,13 +105,6 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
     Calculate properties of avalanches.
     -   Avalanches are segmented by using an arbitrary "x0".
     """
-
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
 
     funcname = inspect.getframeinfo(inspect.currentframe()).function
     doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
