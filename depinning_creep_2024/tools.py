@@ -1,3 +1,7 @@
+"""
+Various tools.
+"""
+
 import argparse
 import os
 import re

@@ -323,6 +323,7 @@ def _steady_state(file: h5py.File) -> int:
     return np.argmax(tangent < 0.95) + 1
 
 
+@tools.docstring_append_cli()
 def EnsembleInfo(cli_args: list = None, _return_parser: bool = False) -> None:
     """
     Basic interpretation of the ensemble.
@@ -397,6 +398,7 @@ def EnsembleInfo(cli_args: list = None, _return_parser: bool = False) -> None:
         Preparation.store_histogram(output.create_group("hist_x"), pdfx)
 
 
+@tools.docstring_append_cli()
 def Plot(cli_args: list = None, _return_parser: bool = False) -> None:
     """
     Basic of the ensemble.

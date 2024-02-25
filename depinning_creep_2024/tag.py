@@ -1,3 +1,7 @@
+"""
+Compare tags.
+"""
+
 import packaging.version
 
 

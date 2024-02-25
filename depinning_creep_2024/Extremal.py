@@ -1,3 +1,7 @@
+"""
+Run thermal dynamics with extremal dynamics.
+"""
+
 import argparse
 import inspect
 import logging

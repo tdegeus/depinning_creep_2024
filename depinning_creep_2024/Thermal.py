@@ -1,3 +1,7 @@
+"""
+Run thermal dynamics.
+"""
+
 import argparse
 import inspect
 import logging
@@ -188,6 +192,7 @@ def allocate_System(file: h5py.File, index: int, _module: str = m_name) -> epm.S
     return system
 
 
+@tools.docstring_append_cli()
 def BranchPreparation(
     cli_args: list = None, _return_parser: bool = False, _module: str = m_name
 ) -> None:
@@ -343,6 +348,7 @@ def dump_avalanche(
         dset[index] = stop_column
 
 
+@tools.docstring_append_cli()
 def Run(cli_args: list = None, _return_parser: bool = False, _module: str = m_name) -> None:
     """
     Run simulation at fixed stress.
@@ -531,6 +537,7 @@ def _index_snapshots(group: h5py.Group) -> list[int]:
     return np.arange(group["snapshots"]["S"].size)
 
 
+@tools.docstring_append_cli()
 def EnsembleInfo(
     cli_args: list = None, _return_parser: bool = False, _module: str = m_name
 ) -> None:
@@ -660,6 +667,7 @@ def EnsembleInfo(
             output["tau_alpha"] = tau_alpha
 
 
+@tools.docstring_append_cli()
 def EnsembleStructure(cli_args: list = None, _return_parser: bool = False, _module: str = m_name):
     """
     Extract the structure factor at snapshots.
@@ -715,6 +723,7 @@ def EnsembleStructure(cli_args: list = None, _return_parser: bool = False, _modu
             output.flush()
 
 
+@tools.docstring_append_cli()
 def Plot(cli_args: list = None, _return_parser: bool = False, _module: str = m_name) -> None:
     """
     Basic of the ensemble.
