@@ -2,7 +2,6 @@ import argparse
 import inspect
 import pathlib
 import sys
-import textwrap
 import time
 
 import enstat
@@ -66,11 +65,17 @@ def _upgrade_data(filename: pathlib.Path, temp_dir: pathlib.Path) -> bool:
     return Preparation._upgrade_metadata(temp_file, temp_dir)
 
 
-def UpgradeData(cli_args=None):
-    r"""
+@tools.docstring_append_cli()
+def UpgradeData(cli_args: list = None, _return_parser: bool = False):
+    """
     Upgrade data to the current version.
     """
-    Preparation.UpgradeData(cli_args, m_name, _upgrade_data)
+    Preparation.UpgradeData(
+        cli_args=cli_args,
+        _return_parser=_return_parser,
+        _module=m_name,
+        _upgrade_function=_upgrade_data,
+    )
 
 
 def allocate_System(file: h5py.File, index: int) -> epm.SystemClass:
@@ -117,18 +122,21 @@ def dump_snapshot(
         dset[index] = systemspanning
 
 
-def BranchPreparation(cli_args=None):
-    r"""
+@tools.docstring_append_cli()
+def BranchPreparation(cli_args: list = None, _return_parser: bool = False):
+    """
     Branch from prepared stress state and add parameters.
     """
     funcname = inspect.getframeinfo(inspect.currentframe()).function
-    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    doc = tools._fmt_doc(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
-
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("--kframe", type=float, help="Frame stiffness (default 1 / L**2)")
     parser.add_argument("input", type=pathlib.Path, help="Input file (read-only)")
     parser.add_argument("output", type=pathlib.Path, help="Output file (overwritten)")
+
+    if _return_parser:
+        return parser
 
     args = tools._parse(parser, cli_args)
     assert args.input.exists()
@@ -167,8 +175,8 @@ def BranchPreparation(cli_args=None):
             dset[0] = 0
 
 
-def Run(cli_args=None):
-    r"""
+def Run(cli_args: list = None, _return_parser: bool = False) -> None:
+    """
     Run simulation for a fixed number of steps.
 
     -   Write global output per step (``uframe``, ``sigma``, ``T``, ``S``, ``A``).
@@ -180,9 +188,8 @@ def Run(cli_args=None):
     ticb = time.time()
 
     funcname = inspect.getframeinfo(inspect.currentframe()).function
-    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    doc = tools._fmt_doc(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
-
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("-v", "--version", action="version", version=version)
     parser.add_argument(
@@ -211,6 +218,9 @@ def Run(cli_args=None):
         help="Duration to reserve for saving data",
     )
     parser.add_argument("file", type=pathlib.Path, help="Input/output file")
+
+    if _return_parser:
+        return parser
 
     args = tools._parse(parser, cli_args)
     args.walltime -= args.save_duration
@@ -309,20 +319,22 @@ def _steady_state(file: h5py.File) -> int:
     return np.argmax(tangent < 0.95) + 1
 
 
-def EnsembleInfo(cli_args=None):
+def EnsembleInfo(cli_args: list = None, _return_parser: bool = False) -> None:
     """
     Basic interpretation of the ensemble.
     """
 
     funcname = inspect.getframeinfo(inspect.currentframe()).function
-    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    doc = tools._fmt_doc(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
-
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("-v", "--version", action="version", version=version)
     parser.add_argument("-f", "--force", action="store_true", help="Overwrite existing file")
     parser.add_argument("-o", "--output", type=pathlib.Path, help="Output file", default=f_info)
     parser.add_argument("files", nargs="*", type=pathlib.Path, help="Simulation files")
+
+    if _return_parser:
+        return parser
 
     args = tools._parse(parser, cli_args)
     assert all([f.exists() for f in args.files])
@@ -381,7 +393,7 @@ def EnsembleInfo(cli_args=None):
         Preparation.store_histogram(output.create_group("hist_x"), pdfx)
 
 
-def Plot(cli_args=None):
+def Plot(cli_args: list = None, _return_parser: bool = False) -> None:
     """
     Basic of the ensemble.
     """
@@ -392,11 +404,13 @@ def Plot(cli_args=None):
     plt.style.use(["goose", "goose-latex", "goose-autolayout"])
 
     funcname = inspect.getframeinfo(inspect.currentframe()).function
-    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    doc = tools._fmt_doc(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
-
     parser.add_argument("-v", "--version", action="version", version=version)
     parser.add_argument("file", type=pathlib.Path, help="Simulation file")
+
+    if _return_parser:
+        return parser
 
     args = tools._parse(parser, cli_args)
     assert args.file.exists()
@@ -445,3 +459,14 @@ def Plot(cli_args=None):
 
     plt.show()
     plt.close(fig)
+
+
+# autodoc
+# this bit is generated by docs/conf.py
+
+
+def _BranchPreparation_parser() -> argparse.ArgumentParser:
+    return BranchPreparation(_return_parser=True)
+
+
+# /autodoc
