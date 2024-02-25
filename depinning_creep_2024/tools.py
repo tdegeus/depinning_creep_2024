@@ -78,24 +78,22 @@ def docstring_append_cli():
             ...
     """
 
-    args = """
+    args = textwrap.dedent("""
     :param cli_args:
         Command line arguments, see ``--help`` for details. Default: ``sys.argv[1:]`` is used.
 
     :param _return_parser: Return parser instead of executing (for documentation).
-    """
+    """)
 
-    ret = """
-    :return: ``None`` if executed, parser if ``return_parser``.
-    """
+    ret = ":return: ``None`` if executed, parser if ``return_parser``."
 
     def wrapped(func):
-        doc = func.__doc__
+        doc = textwrap.dedent(func.__doc__)
         s = re.split(r"(\n\s*:param \w*:)(.*)", doc)
         base = s[0]
         arguments = "".join(s[1:])
-        doc = r"\n\n".join([base, args, arguments, ret])
-        func.__doc__ = re.sub(r"(\n\n+)", r"\n\n", doc)
+        doc = "\n\n".join([base, args, arguments, ret])
+        func.__doc__ = textwrap.indent(re.sub(r"(\n\n+)", r"\n\n", doc), "    ")
         return func
 
     return wrapped
