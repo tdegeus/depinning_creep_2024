@@ -78,12 +78,14 @@ def docstring_append_cli():
             ...
     """
 
-    args = textwrap.dedent("""
+    args = textwrap.dedent(
+        """
     :param cli_args:
         Command line arguments, see ``--help`` for details. Default: ``sys.argv[1:]`` is used.
 
     :param _return_parser: Return parser instead of executing (for documentation).
-    """)
+    """
+    )
 
     ret = ":return: ``None`` if executed, parser if ``return_parser``."
 
