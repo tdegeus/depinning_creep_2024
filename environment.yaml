@@ -4,6 +4,7 @@ dependencies:
 - autodocsumm
 - click
 - enstat >=0.9.6
+- furo
 - goosehdf5 >=0.26.1
 - goosempl
 - gooseslurm
@@ -21,4 +22,7 @@ dependencies:
 - python-gooseeye >=0.8.0
 - setuptools_scm
 - shelephant
+- sphinx
+- sphinx-argparse
+- sphinx_rtd_theme
 - tqdm
