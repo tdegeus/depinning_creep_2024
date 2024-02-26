@@ -8,11 +8,6 @@ Contents
    cli/index.rst
    module.rst
 
-.. argparse::
-    :module: depinning_creep_2024.AQS
-    :func: _BranchPreparation_parser
-    :prog: AQS_BranchPreparation
-
 Indices and tables
 ==================
 
