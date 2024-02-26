@@ -1,3 +1,4 @@
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.10709896.svg)](https://doi.org/10.5281/zenodo.10709896)
 [![ci](https://github.com/tdegeus/depinning_creep_2024/workflows/CI/badge.svg)](https://github.com/tdegeus/depinning_creep_2024/actions)
 [![Documentation Status](https://readthedocs.org/projects/depinning-creep-2024/badge/?version=latest)](https://depinning-creep-2024.readthedocs.io/en/latest/?badge=latest)
 [![pre-commit](https://github.com/tdegeus/depinning_creep_2024/workflows/pre-commit/badge.svg)](https://github.com/tdegeus/depinning_creep_2024/actions)
