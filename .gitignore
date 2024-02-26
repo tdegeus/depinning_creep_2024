@@ -1,6 +1,8 @@
+docs/generated/*rst
+docs/module.rst
+docs/cli/*rst
 tests/output_*
 tests/data_version=*
-
 _version.py
 
 # Byte-compiled / optimized / DLL files

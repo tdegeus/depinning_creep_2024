@@ -1,6 +1,12 @@
+"""
+Various tools.
+"""
+
 import argparse
 import os
+import re
 import sys
+import textwrap
 from datetime import datetime
 
 import click
@@ -11,11 +17,92 @@ from . import tag
 from ._version import version
 
 
-def _parse(parser: argparse.ArgumentParser, cli_args: list[str]) -> argparse.ArgumentParser:
+class MyFmt(
+    argparse.RawDescriptionHelpFormatter,
+    argparse.ArgumentDefaultsHelpFormatter,
+    argparse.MetavarTypeHelpFormatter,
+):
+    pass
+
+
+def _fmt_doc(text: str) -> str:
+    """
+    Format the docstring:
+
+    *   Dedent.
+    *   Strip.
+    """
+    return textwrap.dedent(text).split(":param")[0].strip()
+
+
+def _parse(parser: argparse.ArgumentParser, cli_args: list) -> argparse.ArgumentParser:
     if cli_args is None:
         return parser.parse_args(sys.argv[1:])
 
     return parser.parse_args([str(arg) for arg in cli_args])
+
+
+# https://stackoverflow.com/a/68901244/2646505
+def docstring_copy(source_function):
+    """
+    Copies the docstring of the given function to another.
+    This function is intended to be used as a decorator.
+
+    .. code-block:: python3
+
+        def foo():
+            '''This is a foo doc string'''
+            ...
+
+        @docstring_copy(foo)
+        def bar():
+            ...
+    """
+
+    def wrapped(func):
+        func.__doc__ = source_function.__doc__
+        return func
+
+    return wrapped
+
+
+def docstring_append_cli():
+    """
+    Append the docstring with the default CLI help.
+    This function is intended to be used as a decorator.
+
+    .. code-block:: python3
+
+        def foo():
+            '''This is a foo doc string'''
+            ...
+
+        @docstring_append_cli
+        def bar():
+            ...
+    """
+
+    args = textwrap.dedent(
+        """
+    :param cli_args:
+        Command line arguments, see ``--help`` for details. Default: ``sys.argv[1:]`` is used.
+
+    :param _return_parser: Return parser instead of executing (for documentation).
+    """
+    )
+
+    ret = ":return: ``None`` if executed, parser if ``return_parser``."
+
+    def wrapped(func):
+        doc = textwrap.dedent(func.__doc__)
+        s = re.split(r"(\n\s*:param \w*:)(.*)", doc)
+        base = s[0]
+        arguments = "".join(s[1:])
+        doc = "\n\n".join([base, args, arguments, ret])
+        func.__doc__ = textwrap.indent(re.sub(r"(\n\n+)", r"\n\n", doc), "    ")
+        return func
+
+    return wrapped
 
 
 def read_version(file: h5py.File, path: str) -> str:

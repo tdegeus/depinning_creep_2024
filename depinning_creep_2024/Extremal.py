@@ -1,8 +1,11 @@
+"""
+Run thermal dynamics with extremal dynamics.
+"""
+
 import argparse
 import inspect
 import logging
 import pathlib
-import textwrap
 
 import enstat
 import GooseEPM as epm
@@ -16,6 +19,7 @@ from . import Thermal
 from . import storage
 from . import tools
 from ._version import version
+from .tools import MyFmt
 
 m_name = "Extremal"
 m_exclude = ["AQS", "ExtremalAvalanche", "Thermal"]
@@ -72,48 +76,62 @@ def _upgrade_data(
     return Preparation._upgrade_metadata(temp_file, temp_dir)
 
 
-def UpgradeData(cli_args: list = None) -> None:
-    r"""
+@tools.docstring_append_cli()
+def UpgradeData(cli_args: list = None, _return_parser: bool = False) -> None:
+    """
     Upgrade data to the current version.
     """
-    Preparation.UpgradeData(cli_args, m_name, _upgrade_data, combine=True)
+    return Preparation.UpgradeData(
+        cli_args=cli_args,
+        _return_parser=_return_parser,
+        _module=m_name,
+        _upgrade_function=_upgrade_data,
+        _combine=True,
+    )
 
 
-def BranchPreparation(cli_args: list = None) -> None:
-    return Thermal.BranchPreparation(cli_args, m_name)
+@tools.docstring_copy(Thermal.BranchPreparation)
+def BranchPreparation(cli_args: list = None, _return_parser: bool = False) -> None:
+    return Thermal.BranchPreparation(
+        cli_args=cli_args, _return_parser=_return_parser, _module=m_name
+    )
 
 
-def Run(cli_args: list = None) -> None:
-    return Thermal.Run(cli_args, m_name)
+@tools.docstring_copy(Thermal.Run)
+def Run(cli_args: list = None, _return_parser: bool = False) -> None:
+    return Thermal.Run(cli_args=cli_args, _return_parser=_return_parser, _module=m_name)
 
 
-def EnsembleInfo(cli_args: list = None) -> None:
-    return Thermal.EnsembleInfo(cli_args, m_name)
+@tools.docstring_copy(Thermal.EnsembleInfo)
+def EnsembleInfo(cli_args: list = None, _return_parser: bool = False) -> None:
+    return Thermal.EnsembleInfo(cli_args=cli_args, _return_parser=_return_parser, _module=m_name)
 
 
-def EnsembleStructure(cli_args: list = None) -> None:
-    return Thermal.EnsembleStructure(cli_args, m_name)
+@tools.docstring_copy(Thermal.EnsembleStructure)
+def EnsembleStructure(cli_args: list = None, _return_parser: bool = False) -> None:
+    return Thermal.EnsembleStructure(
+        cli_args=cli_args, _return_parser=_return_parser, _module=m_name
+    )
 
 
-def Plot(cli_args: list = None) -> None:
-    return Thermal.Plot(cli_args, m_name)
+@tools.docstring_copy(Thermal.Plot)
+def Plot(cli_args: list = None, _return_parser: bool = False) -> None:
+    return Thermal.Plot(cli_args=cli_args, _return_parser=_return_parser, _module=m_name)
 
 
-def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
+@tools.docstring_append_cli()
+def EnsembleAvalanches_x0(
+    cli_args: list = None, _return_parser: bool = False, _module: str = m_name
+):
     """
     Calculate properties of avalanches.
     -   Avalanches are segmented by using an arbitrary "x0".
+
+    :param _module: Name of the module calling this function.
     """
 
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
-
     funcname = inspect.getframeinfo(inspect.currentframe()).function
-    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    doc = tools._fmt_doc(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
 
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
@@ -133,6 +151,9 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
         "--means", type=int, default=4, help="Compute <S, A, ell>**(i + 1) for i in range(means)"
     )
     parser.add_argument("info", type=pathlib.Path, help="EnsembleInfo: read files")
+
+    if _return_parser:
+        return parser
 
     args = tools._parse(parser, cli_args)
     assert args.info.exists()
@@ -155,10 +176,10 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
                 smax = 0
                 xmin = np.inf
                 xmax = -np.inf
-            if myname not in file:
+            if _module not in file:
                 assert not any(m in file for m in m_exclude), "Wrong file type"
                 continue
-            res = file[myname]["avalanches"]
+            res = file[_module]["avalanches"]
             x = res["xmin"][...]
             smax = max(smax, x.size)
             xmin = min(xmin, np.min(x))
@@ -199,7 +220,7 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
 
     # collect statistics
     with h5py.File(args.output, "w") as output:
-        tools.create_check_meta(output, tools.path_meta(myname, funcname), dev=args.develop)
+        tools.create_check_meta(output, tools.path_meta(_module, funcname), dev=args.develop)
         with h5py.File(files[0]) as file:
             g5.copy(file, output, ["/param"])
 
@@ -210,7 +231,7 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
 
         for ifile, f in enumerate(tqdm.tqdm(files)):
             with h5py.File(f) as file:
-                res = file[myname]["avalanches"]
+                res = file[_module]["avalanches"]
                 for iava in range(res["xmin"].shape[0]):
                     idx = res["idx"][iava, ...]
                     xmin = res["xmin"][iava, ...]
@@ -239,3 +260,37 @@ def EnsembleAvalanches_x0(cli_args: list = None, myname=m_name):
 
             measurement.store(file=output, root="/data")
             output.flush()
+
+
+# <autodoc> generated by docs/conf.py
+
+
+def _BranchPreparation_parser() -> argparse.ArgumentParser:
+    return BranchPreparation(_return_parser=True)
+
+
+def _EnsembleAvalanches_x0_parser() -> argparse.ArgumentParser:
+    return EnsembleAvalanches_x0(_return_parser=True)
+
+
+def _EnsembleInfo_parser() -> argparse.ArgumentParser:
+    return EnsembleInfo(_return_parser=True)
+
+
+def _EnsembleStructure_parser() -> argparse.ArgumentParser:
+    return EnsembleStructure(_return_parser=True)
+
+
+def _Plot_parser() -> argparse.ArgumentParser:
+    return Plot(_return_parser=True)
+
+
+def _Run_parser() -> argparse.ArgumentParser:
+    return Run(_return_parser=True)
+
+
+def _UpgradeData_parser() -> argparse.ArgumentParser:
+    return UpgradeData(_return_parser=True)
+
+
+# </autodoc>

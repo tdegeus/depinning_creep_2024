@@ -1,3 +1,7 @@
+"""
+Generate random realizations.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -8,7 +12,6 @@ import pathlib
 import re
 import shutil
 import tempfile
-import textwrap
 from datetime import datetime
 
 import enstat
@@ -24,6 +27,7 @@ from . import storage
 from . import tag
 from . import tools
 from ._version import version
+from .tools import MyFmt
 
 data_version = "3.0"
 m_name = "Preparation"
@@ -316,60 +320,51 @@ def _upgrade_metadata(filename: pathlib.Path, temp_dir: pathlib.Path) -> pathlib
     return temp_file
 
 
+@tools.docstring_append_cli()
 def UpgradeData(
     cli_args: list = None,
-    myname: str = m_name,
-    upgrade_function=_upgrade_data,
-    combine: bool = False,
+    _return_parser: bool = False,
+    _module: str = m_name,
+    _upgrade_function=_upgrade_data,
+    _combine: bool = False,
 ) -> None:
     """
     Upgrade data to the current version.
 
-    .. note::
+    :param _module: Name of the module calling this function.
+    :param _upgrade_function: Function that upgrades the data.
+    :param _combine:
+        Combine two data-files.
 
-        The following call is made:
+        -   If ``_combine=False``::
 
-        -   If ``combine=False``::
+                temp_file = _upgrade_function(filename, temp_dir)
 
-                temp_file = upgrade_function(filename, temp_dir)
+        -   If ``_combine=True``::
 
-        -   If ``combine=True``::
-
-                temp_file = upgrade_function(filename, temp_dir, args.insert)
+                temp_file = _upgrade_function(filename, temp_dir, args.insert)
 
         The return value ``temp_file`` is then handled as follows:
 
         -   If ``ret is None``: The file is not upgraded.
         -   Otherwise a backup is created, and the file is replaced by ``temp_file``.
-
-    :param cli_args: Command line arguments (all items are converted to string and then parsed).
-    :param myname: Name of the module.
-    :param upgrade_function: Function that upgrades the data.
-    :param combine: Combine two data-files.
     """
-
-    doc = "Upgrade data to the current version."
-
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
-
     funcname = inspect.getframeinfo(inspect.currentframe()).function
+    doc = tools._fmt_doc(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
-
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("--no-bak", action="store_true", help="Do not backup before modifying")
-    if combine:
+    if _combine:
         parser.add_argument("--insert", type=pathlib.Path, help="Extra data to insert")
         parser.add_argument("file", type=pathlib.Path, help="File (overwritten)")
     else:
         parser.add_argument("files", type=pathlib.Path, nargs="*", help="File (overwritten)")
 
+    if _return_parser:
+        return parser
+
     args = tools._parse(parser, cli_args)
-    if combine:
+    if _combine:
         files = [args.file]
     else:
         files = args.files
@@ -385,16 +380,16 @@ def UpgradeData(
             pbar.set_description(str(filename))
             pbar.refresh()
 
-            if combine:
-                temp_file = upgrade_function(filename, temp_dir, args.insert)
+            if _combine:
+                temp_file = _upgrade_function(filename, temp_dir, args.insert)
             else:
-                temp_file = upgrade_function(filename, temp_dir)
+                temp_file = _upgrade_function(filename, temp_dir)
 
             if temp_file is None:
                 continue
 
             with h5py.File(temp_file, "a") as file:
-                tools.create_check_meta(file, tools.path_meta(myname, funcname), dev=args.develop)
+                tools.create_check_meta(file, tools.path_meta(_module, funcname), dev=args.develop)
 
             if not args.no_bak:
                 bakname = filename.parent / (filename.name + ".bak")
@@ -402,25 +397,20 @@ def UpgradeData(
             shutil.copy2(temp_file, filename)
 
 
-def VerifyData(cli_args: list = None) -> None:
+@tools.docstring_append_cli()
+def VerifyData(cli_args: list = None, _return_parser: bool = False) -> None:
     """
     Check that the data is of the correct version.
     Filenames of incorrect files are printed to stdout.
     """
-
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
-
     funcname = inspect.getframeinfo(inspect.currentframe()).function
-    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    doc = tools._fmt_doc(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
-
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
     parser.add_argument("files", type=pathlib.Path, nargs="*", help="File (overwritten)")
+
+    if _return_parser:
+        return parser
 
     args = tools._parse(parser, cli_args)
     assert all([f.is_file() for f in args.files]), "File not found"
@@ -487,23 +477,14 @@ def load_snapshot(index: int, group: h5py.Group, system: epm.SystemClass) -> epm
     return system
 
 
-def Generate(cli_args: list = None) -> None:
+def Generate(cli_args: list = None, _return_parser: bool = False) -> None:
     """
     Generate IO files, and compute and write initial states.
     In addition, write common simulation files.
     """
-
-    class MyFmt(
-        argparse.RawDescriptionHelpFormatter,
-        argparse.ArgumentDefaultsHelpFormatter,
-        argparse.MetavarTypeHelpFormatter,
-    ):
-        pass
-
     funcname = inspect.getframeinfo(inspect.currentframe()).function
-    doc = textwrap.dedent(inspect.getdoc(globals()[funcname]))
+    doc = tools._fmt_doc(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
-
     parser.add_argument("-n", "--nsim", type=int, default=1, help="#simulations")
     parser.add_argument("-s", "--start", type=int, default=0, help="Start simulation")
     parser.add_argument("--develop", action="store_true", help="Allow uncommitted")
@@ -525,8 +506,10 @@ def Generate(cli_args: list = None) -> None:
         help="Dynamics",
     )
     parser.add_argument("--all", action="store_true", help="Generate a suggestion of runs")
-
     parser.add_argument("outdir", type=pathlib.Path, help="Output directory")
+
+    if _return_parser:
+        return parser
 
     args = tools._parse(parser, cli_args)
     args.outdir.mkdir(parents=True, exist_ok=True)
@@ -603,3 +586,21 @@ def Generate(cli_args: list = None) -> None:
         exe = f"{name}_Run"
         commands = [f"{exe} -n 112 {f}" for f in files]
         shelephant.yaml.dump(base / "commands_run.yaml", commands, force=True)
+
+
+# <autodoc> generated by docs/conf.py
+
+
+def _Generate_parser() -> argparse.ArgumentParser:
+    return Generate(_return_parser=True)
+
+
+def _UpgradeData_parser() -> argparse.ArgumentParser:
+    return UpgradeData(_return_parser=True)
+
+
+def _VerifyData_parser() -> argparse.ArgumentParser:
+    return VerifyData(_return_parser=True)
+
+
+# </autodoc>
