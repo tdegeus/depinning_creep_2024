@@ -403,12 +403,6 @@ def Plot(cli_args: list = None, _return_parser: bool = False) -> None:
     """
     Basic of the ensemble.
     """
-
-    import GooseMPL as gplt  # noqa: F401
-    import matplotlib.pyplot as plt  # noqa: F401
-
-    plt.style.use(["goose", "goose-latex", "goose-autolayout"])
-
     funcname = inspect.getframeinfo(inspect.currentframe()).function
     doc = tools._fmt_doc(inspect.getdoc(globals()[funcname]))
     parser = argparse.ArgumentParser(formatter_class=MyFmt, description=doc)
@@ -420,6 +414,12 @@ def Plot(cli_args: list = None, _return_parser: bool = False) -> None:
 
     args = tools._parse(parser, cli_args)
     assert args.file.exists()
+
+    import GooseMPL as gplt  # noqa: F401
+    import matplotlib.pyplot as plt  # noqa: F401
+
+    plt.style.use(["goose", "goose-latex", "goose-autolayout"])
+
 
     with h5py.File(args.file) as file:
         i = _steady_state(file)
