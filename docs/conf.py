@@ -85,6 +85,8 @@ for name, funcname in scripts.items():
                 f"    :module: {libname}.{modname}",
                 f"    :func: {parser}",
                 f"    :prog: {progname}",
+                "",
+                f"See also: :py:func:`{libname}.{modname}.{funcname}`",
             ]
         )
     )
