@@ -420,7 +420,6 @@ def Plot(cli_args: list = None, _return_parser: bool = False) -> None:
 
     plt.style.use(["goose", "goose-latex", "goose-autolayout"])
 
-
     with h5py.File(args.file) as file:
         i = _steady_state(file)
         res = file[m_name]["data"]
